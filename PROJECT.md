@@ -26,9 +26,9 @@ If there are three consecutive pauses, then the conversation ends prematurely.
 
 The shared goals of a conversation are as follows:
 
-- [Coherence] For every item *I*, the (up to) 3 preceding items and (up to) 3 following items are collected into a set *C_{I}* of context items.
-    If a subject of *I* is never mentioned in *C_{I}* then one point is lost from the final score. If all subjects in *I* are mentioned at least
-    twice in *C_{I}* then one point is added to the final score. The window defining *C_{I}* does not extend beyond the start of the
+- [Coherence] For every item *I*, the (up to) 3 preceding items and (up to) 3 following items are collected into a set *C_I* of context items.
+    If a subject of *I* is never mentioned in *C_I* then one point is lost from the final score. If all subjects in *I* are mentioned at least
+    twice in *C_I* then one point is added to the final score. The window defining *C_I* does not extend beyond the start of the
     conversation or any pauses.
 
 - [Importance] The total importance of all items in the final item sequence is added to the shared score.
