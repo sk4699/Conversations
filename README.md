@@ -87,7 +87,7 @@ uv run ruff check --fix
 
 Here are some common examples of how to run the simulation with different configurations.
 
-##### Example 1: Run with the Graphical User Interface
+##### Example 1: Run with the GUI
 
 To run the simulation and see the visualizer, use the `--gui` flag. This example also increases the conversation length and adds 10 instances of the random player
 
@@ -103,7 +103,7 @@ To create a game with 2 `Player0` instances and 8 `RandomPlayer` instances, use 
 uv run python main.py --player p0 2 --player pr 8
 ```
 
-##### Example 3: Run a Large-Scale CLI Simulation
+##### Example 3: Run a CLI Simulation
 
 This example runs a long conversation with 100 turns, a large number of subjects, and a custom seed. Since `--gui` is not specified, it will output the final JSON results to the console.
 
