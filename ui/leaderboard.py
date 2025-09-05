@@ -113,7 +113,7 @@ class Leaderboard(pg.sprite.Sprite):
 
 		content_surface = pg.Surface(self.content_rect.size, pg.SRCALPHA)
 
-		scores = self.score_data['scores']
+		scores = self.score_data['player_scores']
 		sorted_players = sorted(scores.keys(), key=lambda pid: scores[pid]['total'], reverse=True)
 
 		y_offset = 0
