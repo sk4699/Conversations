@@ -2,7 +2,7 @@
 
 ### Setup
 
-Start with installing uv, uv is a modern python package manager. 
+Start with installing uv, uv is a modern python package manager.
 
 - [UV Install instructions](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer)
 
@@ -51,6 +51,38 @@ The `--player` argument allows you to specify the number of players of a certain
 
 ---
 
+### Code Quality and Formatting
+
+The repository uses Ruff for both formatting and linting, if your PR does not pass the CI checks it won't be merged.
+
+VSCode has a Ruff extension that can run on save. [Editor Setup](https://docs.astral.sh/ruff/editors/setup/).
+
+To run formatting check:
+
+```bash
+uv run ruff format --check
+```
+
+To run formatting:
+
+```bash
+uv run ruff format
+```
+
+To run linting:
+
+```bash
+uv run ruff check
+```
+
+To run linting with auto-fix:
+
+```bash
+uv run ruff check --fix
+```
+
+---
+
 ### Usage Examples
 
 Here are some common examples of how to run the simulation with different configurations.
@@ -81,7 +113,7 @@ uv run python main.py --length 100 --subjects 50 --seed 123 --player p0 10
 
 ##### Example 4: Run a Head-to-Head Test
 
-To test `Player1` against `Player2` without any other agents, specify only those two types.
+To test `Player1` against `Player2` without any other players, specify only those two types.
 
 ```bash
 uv run python main.py --player p1 1 --player p2 1 --length 20
