@@ -62,29 +62,28 @@ class PlayerSidepanel(pg.sprite.Sprite):
 			card.set_contributions(count)
 
 	def handle_event(self, event):
-		if event.type == pg.MOUSEBUTTONDOWN:
-			if self.rect.collidepoint(event.pos):
-				content_screen_rect = self.content_rect.copy()
-				content_screen_rect.topleft = (
-					self.rect.x + self.content_rect.x,
-					self.rect.y + self.content_rect.y,
-				)
+		if event.type == pg.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
+			content_screen_rect = self.content_rect.copy()
+			content_screen_rect.topleft = (
+				self.rect.x + self.content_rect.x,
+				self.rect.y + self.content_rect.y,
+			)
 
-				if content_screen_rect.collidepoint(event.pos):
-					if event.button == 4:
-						self.scroll_offset = min(self.scroll_offset + 20, 0)
-					elif event.button == 5:
-						visible_height = self.content_rect.height
-						max_scroll = max(0, self.content_height - visible_height)
-						self.scroll_offset = max(self.scroll_offset - 20, -max_scroll)
-					elif event.button == 1:
-						local_pos = (
-							event.pos[0] - content_screen_rect.x,
-							event.pos[1] - content_screen_rect.y - self.scroll_offset,
-						)
-						for card in self.cards:
-							if card.rect.collidepoint(local_pos):
-								return card.player
+			if content_screen_rect.collidepoint(event.pos):
+				if event.button == 4:
+					self.scroll_offset = min(self.scroll_offset + 20, 0)
+				elif event.button == 5:
+					visible_height = self.content_rect.height
+					max_scroll = max(0, self.content_height - visible_height)
+					self.scroll_offset = max(self.scroll_offset - 20, -max_scroll)
+				elif event.button == 1:
+					local_pos = (
+						event.pos[0] - content_screen_rect.x,
+						event.pos[1] - content_screen_rect.y - self.scroll_offset,
+					)
+					for card in self.cards:
+						if card.rect.collidepoint(local_pos):
+							return card.player
 
 	def update(self):
 		self.image.fill(WHITE)

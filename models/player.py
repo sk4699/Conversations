@@ -1,7 +1,6 @@
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 from models.item import Item
 
@@ -29,5 +28,5 @@ class Player(ABC):
 		return f'ID: {self.id}\nName: {self.name}\nPreferences: {self.preferences}\nMemory Bank: {self.memory_bank}'
 
 	@abstractmethod
-	def propose_item(self, history: list[Item]) -> Optional[Item]:
+	def propose_item(self, history: list[Item]) -> Item | None:
 		pass

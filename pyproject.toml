@@ -12,7 +12,15 @@ dependencies = [
 line-length = 100
 
 [tool.ruff.lint]
-extend-select = ["E501"]
+select = [
+    "E",
+    "F",
+    "UP",
+    "B",
+    "SIM",
+    "I",
+]
+ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "single"

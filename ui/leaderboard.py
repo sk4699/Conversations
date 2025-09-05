@@ -58,25 +58,23 @@ class Leaderboard(pg.sprite.Sprite):
 		self._update_display()
 
 	def handle_event(self, event):
-		"""Handles user input for scrolling."""
-		if event.type == pg.MOUSEBUTTONDOWN:
-			if self.rect.collidepoint(event.pos):
-				content_screen_rect = self.content_rect.copy()
-				content_screen_rect.topleft = (
-					self.rect.x + self.content_rect.x,
-					self.rect.y + self.content_rect.y,
-				)
+		if event.type == pg.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
+			content_screen_rect = self.content_rect.copy()
+			content_screen_rect.topleft = (
+				self.rect.x + self.content_rect.x,
+				self.rect.y + self.content_rect.y,
+			)
 
-				if content_screen_rect.collidepoint(event.pos):
-					visible_height = self.content_rect.height
-					max_scroll = max(0, self.content_height - visible_height)
+			if content_screen_rect.collidepoint(event.pos):
+				visible_height = self.content_rect.height
+				max_scroll = max(0, self.content_height - visible_height)
 
-					if event.button == 4:  # Scroll up
-						self.scroll_offset = max(self.scroll_offset - 30, 0)
-						self._update_display()
-					elif event.button == 5:  # Scroll down
-						self.scroll_offset = min(self.scroll_offset + 30, max_scroll)
-						self._update_display()
+				if event.button == 4:  # Scroll up
+					self.scroll_offset = max(self.scroll_offset - 30, 0)
+					self._update_display()
+				elif event.button == 5:  # Scroll down
+					self.scroll_offset = min(self.scroll_offset + 30, max_scroll)
+					self._update_display()
 
 	def _update_display(self):
 		self.image.fill(WHITE)

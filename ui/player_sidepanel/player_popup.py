@@ -1,4 +1,3 @@
-from typing import Type
 
 import pygame as pg
 
@@ -8,7 +7,7 @@ from ui.conversation_history.message import Message
 
 
 class PlayerPopup(pg.sprite.Sprite):
-	def __init__(self, player: Type[Player], x: int, y: int, width: int, height: int, *groups):
+	def __init__(self, player: type[Player], x: int, y: int, width: int, height: int, *groups):
 		pg.sprite.Sprite.__init__(self, *groups)
 		self.player = player
 		self.width = width

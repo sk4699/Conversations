@@ -1,7 +1,6 @@
 import random
 import uuid
 from collections import Counter
-from typing import Optional, Type
 
 from models.item import Item
 from models.player import Player, PlayerSnapshot
@@ -10,7 +9,7 @@ from models.player import Player, PlayerSnapshot
 class Engine:
 	def __init__(
 		self,
-		players: list[Type[Player]],
+		players: list[type[Player]],
 		player_count: int,
 		subjects: int,
 		memory_size: int,
@@ -24,8 +23,8 @@ class Engine:
 		self.conversation_length = conversation_length
 		self.players_count = player_count
 
-		self.history: list[Optional[Item]] = []
-		self.last_player_id: Optional[uuid.UUID] = None
+		self.history: list[Item | None] = []
+		self.last_player_id: uuid.UUID | None = None
 		self.turn = 0
 		self.consecutive_pauses = 0
 
@@ -73,24 +72,27 @@ class Engine:
 
 		return tuple(items)
 
-	def __get_proposals(self) -> dict[uuid.UUID, Optional[Item]]:
+	def __get_proposals(self) -> dict[uuid.UUID, Item | None]:
 		proposals = {}
 		for player in self.players:
 			proposals[player.id] = player.propose_item(self.history)
 		return proposals
 
 	def __select_speaker(
-		self, proposals: dict[uuid.UUID, Optional[Item]]
-	) -> tuple[Optional[uuid.UUID], Optional[Item]]:
+		self, proposals: dict[uuid.UUID, Item | None]
+	) -> tuple[uuid.UUID | None, Item | None]:
 		proposed_players = {uid: item for uid, item in proposals.items() if item}
 
 		if not proposed_players:
 			return None, None
 
-		if self.last_player_id and self.last_player_id in proposed_players:
-			if random.random() < 0.5:
-				item = proposed_players[self.last_player_id]
-				return self.last_player_id, item
+		if (
+			self.last_player_id
+			and self.last_player_id in proposed_players
+			and random.random() < 0.5
+		):
+			item = proposed_players[self.last_player_id]
+			return self.last_player_id, item
 
 		min_contributions = min(len(self.player_contributions[uid]) for uid in proposed_players)
 		eligible_speakers = [
@@ -253,7 +255,7 @@ class Engine:
 			'shared_score_breakdown': shared_score_breakdown,
 		}
 
-	def _calculate_turn_score_impact(self, item: Optional[Item]) -> dict:
+	def _calculate_turn_score_impact(self, item: Item | None) -> dict:
 		if item is None:
 			return {'total': 0.0}
 
@@ -326,13 +328,13 @@ class Engine:
 			'score_impact': score_impact,
 		}
 
-	def step(self) -> Optional[dict]:
+	def step(self) -> dict | None:
 		if self.turn >= self.conversation_length or self.consecutive_pauses >= 3:
 			return None
 
 		return self.__turn()
 
-	def run(self, players: list[Type[Player]]):
+	def run(self, players: list[type[Player]]):
 		turn_impact = []
 
 		while self.turn < self.conversation_length:

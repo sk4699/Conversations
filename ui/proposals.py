@@ -69,23 +69,22 @@ class Proposals(pg.sprite.Sprite):
 		self.image.blit(content_surface, self.content_rect.topleft)
 
 	def handle_event(self, event):
-		if event.type == pg.MOUSEBUTTONDOWN:
-			if self.rect.collidepoint(event.pos):
-				content_screen_rect = self.content_rect.copy()
-				content_screen_rect.topleft = (
-					self.rect.x + self.content_rect.x,
-					self.rect.y + self.content_rect.y,
-				)
-				if content_screen_rect.collidepoint(event.pos):
-					visible_height = self.content_rect.height
-					max_scroll = max(0, self._total_height - visible_height)
+		if event.type == pg.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
+			content_screen_rect = self.content_rect.copy()
+			content_screen_rect.topleft = (
+				self.rect.x + self.content_rect.x,
+				self.rect.y + self.content_rect.y,
+			)
+			if content_screen_rect.collidepoint(event.pos):
+				visible_height = self.content_rect.height
+				max_scroll = max(0, self._total_height - visible_height)
 
-					if event.button == 4:
-						self.scroll_offset = max(self.scroll_offset - 20, 0)
-						self._update_display()
-					elif event.button == 5:
-						self.scroll_offset = min(self.scroll_offset + 20, max_scroll)
-						self._update_display()
+				if event.button == 4:
+					self.scroll_offset = max(self.scroll_offset - 20, 0)
+					self._update_display()
+				elif event.button == 5:
+					self.scroll_offset = min(self.scroll_offset + 20, max_scroll)
+					self._update_display()
 
 	def draw(self, surface: pg.Surface):
 		surface.blit(self.image, self.rect)

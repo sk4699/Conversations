@@ -1,4 +1,3 @@
-from typing import Type
 
 import pygame as pg
 
@@ -8,7 +7,7 @@ from ui.base import BLACK, WHITE, font
 
 class PlayerInfo(pg.sprite.Sprite):
 	def __init__(
-		self, player: Type[Player], x: int, y: int, width: int, contributions: int, *groups
+		self, player: type[Player], x: int, y: int, width: int, contributions: int, *groups
 	) -> None:
 		pg.sprite.Sprite.__init__(self, *groups)
 		self.player = player

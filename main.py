@@ -1,5 +1,4 @@
 import json
-from typing import Type
 
 from core.engine import Engine
 from core.utils import CustomEncoder
@@ -25,7 +24,7 @@ from ui.gui import run_gui
 def main():
 	args = settings()
 
-	players: list[Type[Player]] = (
+	players: list[type[Player]] = (
 		[RandomPlayer] * args.players['pr']
 		+ [PausePlayer] * args.players['pp']
 		+ [Player0] * args.players['p0']
