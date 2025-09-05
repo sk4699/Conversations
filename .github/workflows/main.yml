@@ -7,12 +7,19 @@ on:
     branches: [ "main" ]
 
 jobs:
-  ruff-check:  
+  ruff-check:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - uses: astral-sh/ruff-action@v3
+      - name: Install Ruff
+        uses: astral-sh/ruff-action@v3
         with:
-          args: "format --check --diff"
+          args: "--version"
+
+      - name: Check formatting
+        run: ruff format --check --diff
+
+      - name: Check for linting errors
+        run: ruff check
