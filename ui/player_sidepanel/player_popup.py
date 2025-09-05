@@ -1,4 +1,3 @@
-
 import pygame as pg
 
 from models.player import Player
