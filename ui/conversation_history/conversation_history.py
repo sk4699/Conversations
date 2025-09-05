@@ -1,7 +1,6 @@
 import pygame as pg
 
-from models.item import Item
-from ui.base import BLACK, WHITE
+from ui.base import BLACK, LIGHT_GREEN, LIGHT_GREY, LIGHT_RED, WHITE
 from ui.conversation_history.message import Message
 
 
@@ -31,13 +30,28 @@ class ConversationHistory(pg.sprite.Sprite):
 		)
 		self._update_display()
 
-	def add_message(self, item: Item, sender: str):
+	def add_message(self, turn_result: dict):
+		item = turn_result.get('item')
+		sender = turn_result.get('speaker_name', 'Pause')
+		score_impact = turn_result.get('score_impact', {})
+
+		message_color = WHITE
+		if item is None:
+			message_color = LIGHT_GREY
+		else:
+			total_delta = score_impact.get('total', 0.0)
+			if total_delta > 0:
+				message_color = LIGHT_GREEN
+			elif total_delta < 0:
+				message_color = LIGHT_RED
+
 		new_message = Message(
 			item=item,
 			sender=sender,
 			x=0,
 			y=0,
 			max_width=self.content_rect.width,
+			bg_color=message_color,
 		)
 
 		self.messages.insert(0, new_message)

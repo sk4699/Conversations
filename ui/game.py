@@ -141,8 +141,7 @@ class Game:
 				self.sidepanel.update_contributions(self.engine.player_contributions)
 				self.turn_display.update_info(turn_result)
 				self.propsals.update_info(turn_result, self.engine.player_names)
-				speaker_name = turn_result.get('speaker_name', 'Pause')
-				self.conversation_history.add_message(turn_result['item'], speaker_name)
+				self.conversation_history.add_message(turn_result)
 
 	def _draw(self):
 		self.screen.fill(WHITE)

@@ -12,3 +12,7 @@ small_font = pg.font.Font(None, 18)
 # Colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
+
+LIGHT_GREY = (240, 240, 240)
+LIGHT_GREEN = (220, 255, 220)
+LIGHT_RED = (255, 220, 220)
