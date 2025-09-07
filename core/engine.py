@@ -55,7 +55,7 @@ class Engine:
 
 		return snapshots
 
-	def __generate_preference(self) -> list[int]:
+	def __generate_preference(self) -> tuple[int]:
 		return tuple(random.sample(self.subjects, len(self.subjects)))
 
 	def __generate_items(self) -> tuple[Item, ...]:
