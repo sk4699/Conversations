@@ -180,7 +180,7 @@ class Engine:
 
 		return individual_scores
 
-	def __calculate_scores(self) -> tuple[float, dict[uuid.UUID, float]]:
+	def __calculate_scores(self) -> dict[str, float]:
 		total_shared_score = 0.0
 		unique_items: set[uuid.UUID] = set()
 
