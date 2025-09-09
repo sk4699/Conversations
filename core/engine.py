@@ -1,6 +1,7 @@
 import random
 import uuid
 from collections import Counter
+from dataclasses import asdict
 
 from models.item import Item
 from models.player import Player, PlayerSnapshot
@@ -231,18 +232,21 @@ class Engine:
 		shared_score = scores['shared']
 		individual_scores = scores['individual']
 
-		player_results = {}
-		for uid in self.player_names:
+		player_results = []
+		for uid, snapshot in self.snapshots.items():
 			total_raw_score = shared_score + individual_scores.get(uid, 0.0)
 			conversation_quality = (
 				total_raw_score / self.conversation_length if self.conversation_length > 0 else 0
 			)
 
-			player_results[uid] = {
+			final_player_data = asdict(snapshot)
+			final_player_data['scores'] = {
 				'total': conversation_quality,
 				'shared': shared_score,
 				'individual': individual_scores.get(uid, 0.0),
 			}
+
+			player_results.append(final_player_data)
 
 		shared_score_breakdown = {
 			'total': scores['shared'],
@@ -349,13 +353,12 @@ class Engine:
 				break
 
 		score_data = self.final_scores()
-		scores = {pid: data['total'] for pid, data in score_data['player_scores'].items()}
 
 		output = {
 			'history': self.history,
 			'turn_impact': turn_impact,
 			'score_breakdown': score_data['shared_score_breakdown'],
-			'scores': scores,
+			'scores': score_data,
 		}
 
 		return output
