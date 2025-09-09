@@ -37,7 +37,7 @@ class Player1(Player):
 		
 		coherence_scores = {item.id: coherence_check(item, history) for item in filtered_memory_bank}
 		importance_scores = {item.id: item.importance for item in filtered_memory_bank}
-		preference_scores = {item.id: self.score_item_preference(item.subjects) for item in filtered_memory_bank}
+		preference_scores = {item.id: score_item_preference(item.subjects, self.subj_pref_ranking) for item in filtered_memory_bank}
 
 
 		# Sort memory bank based on coherence and importance_sort
@@ -56,15 +56,6 @@ class Player1(Player):
 			return item
 		else:
 			return None
-	
-
-	def score_item_preference(self, subjects):
-		try:
-			S_length = len(self.snapshot.preferences)
-			bonuses = [1 - self.subj_pref_ranking[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
-			return sum(bonuses) / len(bonuses)
-		except Exception:
-			return 0.0
 		
 
 	# def preference_sort (self, memory_bank: list[Item]):
@@ -147,6 +138,15 @@ def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
 def importance_sort(memory_bank: list[Item]) -> list[Item]:
 	# Sort the memory bank based on the importance attribute in descending order
 	return sorted(memory_bank, key=lambda item: item.importance, reverse=True)
+
+
+def score_item_preference(subjects, subj_pref_ranking):
+	try:
+		S_length = len(subj_pref_ranking)
+		bonuses = [1 - subj_pref_ranking[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
+		return sum(bonuses) / len(bonuses)
+	except Exception:
+		return 0.0
 
 
 def calculate_weighted_score(item_id, coherence_scores, importance_scores, preference_scores, weights):
