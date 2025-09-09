@@ -6,7 +6,7 @@ class Player1(Player):
 	def __init__(self, snapshot: PlayerSnapshot, conversation_length: int) -> None:  # noqa: F821
 		super().__init__(snapshot, conversation_length)
 
-		self.subj_pref_ranks = {subject: snapshot.preferences.index(subject) for subject in snapshot.preferences}
+		self.subj_pref_ranking = {subject: snapshot.preferences.index(subject) for subject in snapshot.preferences}
 		# player snapshot includes preferences and memory bank of items to contribute
 	
 	def propose_item(self, history: list[Item]) -> Item | None:
@@ -23,7 +23,8 @@ class Player1(Player):
 			return memory_bank_imp[0] if memory_bank_imp else None
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
-		filtered_memory_bank = check_repetition(history, self.UsedItems, self.memory_bank)
+		used_items = set(self.contributed_items)
+		filtered_memory_bank = check_repetition(history, used_items, self.memory_bank)
 		print("\nFiltered Memory Bank: ", filtered_memory_bank)
 
 		# Return None if there are no valid items to propose
@@ -48,7 +49,6 @@ class Player1(Player):
 
 		# memory_bank_pref = self.preference_sort(filtered_memory_bank)
 
-		# TODO: Finish Weight Matrix
 		# weighted_list = self.weight_matrix(filtered_memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
 		item = choose_item(filtered_memory_bank, coherence_scores, importance_scores, preference_scores)
 
@@ -61,7 +61,7 @@ class Player1(Player):
 	def score_item_preference(self, subjects):
 		try:
 			S_length = len(self.snapshot.preferences)
-			bonuses = [1 - self.subj_pref_ranks[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
+			bonuses = [1 - self.subj_pref_ranking[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
 			return sum(bonuses) / len(bonuses)
 		except Exception:
 			return 0.0
@@ -74,17 +74,16 @@ class Player1(Player):
 
 
 	#Personal Variables
-	LastSuggestion: Item
-	UsedItems: set[uuid.UUID] = set()
+	last_suggestion: Item
 
 # Helper Functions #
 
-def check_repetition(history: list[Item], UsedItems, memory_bank) -> list[Item]:
+def check_repetition(history: list[Item], used_items, memory_bank) -> list[Item]:
 	# Update the proposed items set with items from history
-	UsedItems.update(item.id for item in history)
+	used_items.update(item.id for item in history)
 
 	# Filter out items with IDs already in the proposed items set
-	return [item for item in memory_bank if item.id not in UsedItems]
+	return [item for item in memory_bank if item.id not in used_items]
 
 def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
