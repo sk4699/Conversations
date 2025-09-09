@@ -19,8 +19,8 @@ class Player1(Player):
 
 		weighted_list = weightMatrix(self.memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
 		
-		#From here choose the highest one and return the item
-		
+		#From here choose the highest one and return the item (Assign this as LastSuggestion)
+
 		return None
 	
 
