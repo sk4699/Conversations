@@ -5,6 +5,9 @@ import uuid
 class Player1(Player):
 	def __init__(self, snapshot: PlayerSnapshot, conversation_length: int) -> None:  # noqa: F821
 		super().__init__(snapshot, conversation_length)
+
+		self.subj_pref_ranks = {subject: snapshot.preferences.index(subject) for subject in snapshot.preferences}
+		# player snapshot includes preferences and memory bank of items to contribute
 	
 	def propose_item(self, history: list[Item]) -> Item | None:
 
@@ -14,13 +17,13 @@ class Player1(Player):
 		
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
 		if len(history) == 0:
-			memory_bank_imp = importanceSort(self.memory_bank)
+			memory_bank_imp = importance_sort(self.memory_bank)
 			# print("Sorted by Important: ", memory_bank_imp)
 			# input("Press Enter to continue... Importance Sort Complete")
 			return memory_bank_imp[0] if memory_bank_imp else None
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
-		filtered_memory_bank = checkRepition(history, self.UsedItems, self.memory_bank)
+		filtered_memory_bank = check_repetition(history, self.UsedItems, self.memory_bank)
 		print("\nFiltered Memory Bank: ", filtered_memory_bank)
 
 		# Return None if there are no valid items to propose
@@ -28,26 +31,47 @@ class Player1(Player):
 		if len(filtered_memory_bank) == 0:
 			print("No valid items to propose after filtering")
 			# Use importance score if no items are left after filtering
-			filtered_memory_bank = importanceSort(self.memory_bank)
+			memory_bank_imp = importance_sort(self.memory_bank)
+			return memory_bank_imp[0] if memory_bank_imp else None
+		
+		coherence_scores = {item.id: coherence_check(item, history) for item in filtered_memory_bank}
+		importance_scores = {item.id: item.importance for item in filtered_memory_bank}
+		preference_scores = {item.id: self.score_item_preference(item.subjects) for item in filtered_memory_bank}
 
-		# Sort memory bank based on coherence and importanceSort
-		memory_bank_co = coherenceSort(filtered_memory_bank, history)
+
+		# Sort memory bank based on coherence and importance_sort
+		# memory_bank_co = coherence_sort(filtered_memory_bank, history)
 		# print("Sorted by Coherence: ", memory_bank_co)
 		# input("Press Enter to continue... Coherence Sort Complete")
 
-		memory_bank_imp = importanceSort(filtered_memory_bank)
+		# memory_bank_imp = importance_sort(filtered_memory_bank)
 
-
-		# TODO: Add Preferred Sort back in once implemented
-		# memory_bank_pref = preferredSort(filtered_memory_bank)
+		# memory_bank_pref = self.preference_sort(filtered_memory_bank)
 
 		# TODO: Finish Weight Matrix
-		# weighted_list = weightMatrix(filtered_memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
+		# weighted_list = self.weight_matrix(filtered_memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
+		item = choose_item(filtered_memory_bank, coherence_scores, importance_scores, preference_scores)
 
-		# I just have it returning the highest coherence item for now
-		if memory_bank_co:
-			return memory_bank_co[0]
-		return None
+		if item:
+			return item
+		else:
+			return None
+	
+
+	def score_item_preference(self, subjects):
+		try:
+			S_length = len(self.snapshot.preferences)
+			bonuses = [1 - self.subj_pref_ranks[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
+			return sum(bonuses) / len(bonuses)
+		except Exception:
+			return 0.0
+		
+
+	# def preference_sort (self, memory_bank: list[Item]):
+	# 	#Returns a list of the memory bank based on preference sorting 
+	# 	pref_sorted_items = sorted(memory_bank, key=lambda x: self.custom_pref_sort(x.subjects))
+	# 	return pref_sorted_items
+
 
 	#Personal Variables
 	LastSuggestion: Item
@@ -55,14 +79,14 @@ class Player1(Player):
 
 # Helper Functions #
 
-def checkRepition(history: list[Item], UsedItems, memory_bank) -> list[Item]:
+def check_repetition(history: list[Item], UsedItems, memory_bank) -> list[Item]:
 	# Update the proposed items set with items from history
 	UsedItems.update(item.id for item in history)
 
 	# Filter out items with IDs already in the proposed items set
 	return [item for item in memory_bank if item.id not in UsedItems]
 
-def coherenceCheck(currentItem: Item, history: list[Item]) -> float:
+def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
 	recent_history = history[-3:]
 	coherence_score = 0
@@ -73,10 +97,28 @@ def coherenceCheck(currentItem: Item, history: list[Item]) -> float:
 		for subject in item.subjects:
 			subject_count[subject] = subject_count.get(subject, 0) + 1
 
+	has_missing = False
+	all_twice = True
+
 	# See if all subjects in the current item are appear once or twice in the history
 	for subject in currentItem.subjects:
-		if subject_count.get(subject, 0) in [1, 2]:
-			coherence_score += 1
+		count = subject_count.get(subject, 0)
+		if count == 0:
+			has_missing = True
+			break
+		if count < 2:
+			all_twice = False
+
+		# if subject_count.get(subject, 0) in [1, 2]:
+		# 	coherence_score += 1
+
+	if has_missing:
+		coherence_score -= 1  # penalize if subject is missing from prior context. can refine later
+	elif all_twice:
+		coherence_score += 1  # reward if all subjects are mentioned exactly twice in prior context
+	else:
+		coherence_score = 0
+
 
 	# Debugging prints
 	# print("\nCurrent Item Subjects:", currentItem.subjects)
@@ -89,30 +131,49 @@ def coherenceCheck(currentItem: Item, history: list[Item]) -> float:
 
 
 	# This should return a score between 0 and 1 (Not exactly the 0 .5 1 you wanted can be changed later)
-	return coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0
+	# return coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0
 
-def coherenceSort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
+	return (coherence_score + 1) / 2
+
+def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
 	# Sort the memory bank based on coherence scores in descending order
 	# use a lambda on each item to check coherence score
 	sorted_memory = sorted(
 		memory_bank,
-		key=lambda item: coherenceCheck(item, history),
+		key=lambda item: coherence_check(item, history),
 		reverse=True
 	)
 	return sorted_memory
 
-def importanceSort(memory_bank: list[Item]) -> list[Item]:
+def importance_sort(memory_bank: list[Item]) -> list[Item]:
 	# Sort the memory bank based on the importance attribute in descending order
 	return sorted(memory_bank, key=lambda item: item.importance, reverse=True)
 
-def preferredSort (memory_bank: list[Item]):
-    #Returns a list of the memory bank based on preference sorting 
-	return None
 
-def weightMatrix (memory_bank: list[Item], coherence: list[Item], importance: list[Item], preference: list[Item]):
+def calculate_weighted_score(item_id, coherence_scores, importance_scores, preference_scores, weights):
+	w1, w2, w3 = weights
+	coherence = coherence_scores.get(item_id, 0.0)
+	importance = importance_scores.get(item_id, 0.0)
+	preference = preference_scores.get(item_id, 0.0)
+
+	return w1 * coherence + w2 * importance + w3 * preference
+
+def choose_item(memory_bank: list[Item], coherence_scores: dict[Item, float], importance_scores: dict[Item, float], preference_scores: dict[Item, float]):
+
+	w1 = 0.4
+	w2 = 0.3
+	w3 = 0.3
+
+	# tune weights somehow
+
+	weights = w1, w2, w3
+
+	weighted_item_scores = {item: calculate_weighted_score(item.id, coherence_scores, importance_scores, preference_scores, weights) for item in memory_bank}
+
+	return sorted(weighted_item_scores.items(), key=lambda item: item[1], reverse=True)[0][0]
+
 	#Takes in the total memory bank and scores each item based on whatever weighting system we have
 	#Actually should make this a function in the class so it can have access to the contributed items/memory bank
 	#Should automatically score things that were already in the contributed items a 0
 
 	#As its scored, add it to a set thats sorted by the score. Return Set
-	return None
