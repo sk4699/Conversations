@@ -62,8 +62,8 @@ class Engine:
 	def __generate_items(self) -> tuple[Item, ...]:
 		items: list[Item] = []
 
-		for i in range(self.memory_size):
-			samples = 1 if i < self.memory_size // 2 else 2
+		for _ in range(self.memory_size):
+			samples = 1 if random.random() < 0.5 else 2
 
 			importance = round(random.random(), 2)
 			subjects = tuple(random.sample(self.subjects, samples))
