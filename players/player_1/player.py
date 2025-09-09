@@ -1,20 +1,19 @@
 from models.player import Item, Player, PlayerSnapshot
-import uuid
 
 
 class Player1(Player):
 	def __init__(self, snapshot: PlayerSnapshot, conversation_length: int) -> None:  # noqa: F821
 		super().__init__(snapshot, conversation_length)
 
-		self.subj_pref_ranking = {subject: snapshot.preferences.index(subject) for subject in snapshot.preferences}
+		self.subj_pref_ranking = {
+			subject: snapshot.preferences.index(subject) for subject in snapshot.preferences
+		}
 		# player snapshot includes preferences and memory bank of items to contribute
-	
+
 	def propose_item(self, history: list[Item]) -> Item | None:
+		print('\nCurrent Memory Bank: ', self.memory_bank)
+		print('\nConversation History: ', history)
 
-		print("\nCurrent Memory Bank: ", self.memory_bank)
-		print("\nConversation History: ", history)
-
-		
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
 		if len(history) == 0:
 			memory_bank_imp = importance_sort(self.memory_bank)
@@ -25,20 +24,24 @@ class Player1(Player):
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
 		used_items = set(self.contributed_items)
 		filtered_memory_bank = check_repetition(history, used_items, self.memory_bank)
-		print("\nFiltered Memory Bank: ", filtered_memory_bank)
+		print('\nFiltered Memory Bank: ', filtered_memory_bank)
 
 		# Return None if there are no valid items to propose
 		# This can be changed in future just incase we run out of things to say and have to repeat. Not sure if this is possible
 		if len(filtered_memory_bank) == 0:
-			print("No valid items to propose after filtering")
+			print('No valid items to propose after filtering')
 			# Use importance score if no items are left after filtering
 			memory_bank_imp = importance_sort(self.memory_bank)
 			return memory_bank_imp[0] if memory_bank_imp else None
-		
-		coherence_scores = {item.id: coherence_check(item, history) for item in filtered_memory_bank}
-		importance_scores = {item.id: item.importance for item in filtered_memory_bank}
-		preference_scores = {item.id: score_item_preference(item.subjects, self.subj_pref_ranking) for item in filtered_memory_bank}
 
+		coherence_scores = {
+			item.id: coherence_check(item, history) for item in filtered_memory_bank
+		}
+		importance_scores = {item.id: item.importance for item in filtered_memory_bank}
+		preference_scores = {
+			item.id: score_item_preference(item.subjects, self.subj_pref_ranking)
+			for item in filtered_memory_bank
+		}
 
 		# Sort memory bank based on coherence and importance_sort
 		# memory_bank_co = coherence_sort(filtered_memory_bank, history)
@@ -50,24 +53,26 @@ class Player1(Player):
 		# memory_bank_pref = self.preference_sort(filtered_memory_bank)
 
 		# weighted_list = self.weight_matrix(filtered_memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
-		item = choose_item(filtered_memory_bank, coherence_scores, importance_scores, preference_scores)
+		item = choose_item(
+			filtered_memory_bank, coherence_scores, importance_scores, preference_scores
+		)
 
 		if item:
 			return item
 		else:
 			return None
-		
 
 	# def preference_sort (self, memory_bank: list[Item]):
-	# 	#Returns a list of the memory bank based on preference sorting 
+	# 	#Returns a list of the memory bank based on preference sorting
 	# 	pref_sorted_items = sorted(memory_bank, key=lambda x: self.custom_pref_sort(x.subjects))
 	# 	return pref_sorted_items
 
-
-	#Personal Variables
+	# Personal Variables
 	last_suggestion: Item
 
+
 # Helper Functions #
+
 
 def check_repetition(history: list[Item], used_items, memory_bank) -> list[Item]:
 	# Update the proposed items set with items from history
@@ -75,6 +80,7 @@ def check_repetition(history: list[Item], used_items, memory_bank) -> list[Item]
 
 	# Filter out items with IDs already in the proposed items set
 	return [item for item in memory_bank if item.id not in used_items]
+
 
 def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
@@ -109,7 +115,6 @@ def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	else:
 		coherence_score = 0
 
-
 	# Debugging prints
 	# print("\nCurrent Item Subjects:", currentItem.subjects)
 	# print("History Length:", len(history))
@@ -119,21 +124,20 @@ def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	# print("Coherence Score After Normalization:", coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0)
 	# print("Number of Subjects in Current Item:", len(currentItem.subjects))
 
-
 	# This should return a score between 0 and 1 (Not exactly the 0 .5 1 you wanted can be changed later)
 	# return coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0
 
 	return (coherence_score + 1) / 2
 
+
 def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
 	# Sort the memory bank based on coherence scores in descending order
 	# use a lambda on each item to check coherence score
 	sorted_memory = sorted(
-		memory_bank,
-		key=lambda item: coherence_check(item, history),
-		reverse=True
+		memory_bank, key=lambda item: coherence_check(item, history), reverse=True
 	)
 	return sorted_memory
+
 
 def importance_sort(memory_bank: list[Item]) -> list[Item]:
 	# Sort the memory bank based on the importance attribute in descending order
@@ -143,13 +147,17 @@ def importance_sort(memory_bank: list[Item]) -> list[Item]:
 def score_item_preference(subjects, subj_pref_ranking):
 	try:
 		S_length = len(subj_pref_ranking)
-		bonuses = [1 - subj_pref_ranking[subject] / S_length for subject in subjects]  # bonus is already a preference score of sorts
+		bonuses = [
+			1 - subj_pref_ranking[subject] / S_length for subject in subjects
+		]  # bonus is already a preference score of sorts
 		return sum(bonuses) / len(bonuses)
 	except Exception:
 		return 0.0
 
 
-def calculate_weighted_score(item_id, coherence_scores, importance_scores, preference_scores, weights):
+def calculate_weighted_score(
+	item_id, coherence_scores, importance_scores, preference_scores, weights
+):
 	w1, w2, w3 = weights
 	coherence = coherence_scores.get(item_id, 0.0)
 	importance = importance_scores.get(item_id, 0.0)
@@ -157,8 +165,13 @@ def calculate_weighted_score(item_id, coherence_scores, importance_scores, prefe
 
 	return w1 * coherence + w2 * importance + w3 * preference
 
-def choose_item(memory_bank: list[Item], coherence_scores: dict[Item, float], importance_scores: dict[Item, float], preference_scores: dict[Item, float]):
 
+def choose_item(
+	memory_bank: list[Item],
+	coherence_scores: dict[Item, float],
+	importance_scores: dict[Item, float],
+	preference_scores: dict[Item, float],
+):
 	w1 = 0.4
 	w2 = 0.3
 	w3 = 0.3
@@ -167,12 +180,17 @@ def choose_item(memory_bank: list[Item], coherence_scores: dict[Item, float], im
 
 	weights = w1, w2, w3
 
-	weighted_item_scores = {item: calculate_weighted_score(item.id, coherence_scores, importance_scores, preference_scores, weights) for item in memory_bank}
+	weighted_item_scores = {
+		item: calculate_weighted_score(
+			item.id, coherence_scores, importance_scores, preference_scores, weights
+		)
+		for item in memory_bank
+	}
 
 	return sorted(weighted_item_scores.items(), key=lambda item: item[1], reverse=True)[0][0]
 
-	#Takes in the total memory bank and scores each item based on whatever weighting system we have
-	#Actually should make this a function in the class so it can have access to the contributed items/memory bank
-	#Should automatically score things that were already in the contributed items a 0
+	# Takes in the total memory bank and scores each item based on whatever weighting system we have
+	# Actually should make this a function in the class so it can have access to the contributed items/memory bank
+	# Should automatically score things that were already in the contributed items a 0
 
-	#As its scored, add it to a set thats sorted by the score. Return Set
+	# As its scored, add it to a set thats sorted by the score. Return Set
