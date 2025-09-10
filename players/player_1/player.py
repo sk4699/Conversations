@@ -147,14 +147,14 @@ def importance_sort(memory_bank: list[Item]) -> list[Item]:
 
 
 def score_item_preference(subjects, subj_pref_ranking):
-	try:
-		S_length = len(subj_pref_ranking)
-		bonuses = [
-			1 - subj_pref_ranking[subject] / S_length for subject in subjects
-		]  # bonus is already a preference score of sorts
-		return sum(bonuses) / len(bonuses)
-	except Exception:
+	if not subjects:
 		return 0.0
+
+	S_length = len(subj_pref_ranking)
+	bonuses = [
+		1 - subj_pref_ranking.get(subject, S_length) / S_length for subject in subjects
+	]  # bonus is already a preference score of sorts
+	return sum(bonuses) / len(bonuses)
 
 
 def calculate_weighted_score(
