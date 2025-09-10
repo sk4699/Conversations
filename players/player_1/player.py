@@ -101,11 +101,13 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# See if all subjects in the current item are appear once or twice in the history
 	for subject in current_item.subjects:
 		count = subject_count.get(subject, 0)
-		if count == 0:
-			has_missing = True
+		
+		if count != 2:
+			if count == 0:
+				has_missing = True
+			else:
+				all_twice = False
 			break
-		if count < 2:
-			all_twice = False
 
 		# if subject_count.get(subject, 0) in [1, 2]:
 		# 	coherence_score += 1
