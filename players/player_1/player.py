@@ -69,7 +69,7 @@ class Player1(Player):
 	# 	return pref_sorted_items
 
 	# Personal Variables
-	last_suggestion: Item
+	# last_suggestion: Item
 	used_items: set[UUID] = set()
 
 
