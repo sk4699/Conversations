@@ -24,8 +24,7 @@ class Player1(Player):
 			return memory_bank_imp[0] if memory_bank_imp else None
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
-		used_items = set(self.contributed_items)
-		filtered_memory_bank = check_repetition(history, used_items, self.memory_bank)
+		filtered_memory_bank = check_repetition(history, self.used_items, self.memory_bank)
 		print('\nFiltered Memory Bank: ', filtered_memory_bank)
 
 		# Return None if there are no valid items to propose
@@ -71,6 +70,7 @@ class Player1(Player):
 
 	# Personal Variables
 	last_suggestion: Item
+	used_items: set[UUID] = set()
 
 
 # Helper Functions #
