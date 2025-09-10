@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from models.player import Item, Player, PlayerSnapshot
 
 
@@ -82,7 +84,7 @@ def check_repetition(history: list[Item], used_items, memory_bank) -> list[Item]
 	return [item for item in memory_bank if item.id not in used_items]
 
 
-def coherence_check(currentItem: Item, history: list[Item]) -> float:
+def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
 	recent_history = history[-3:]
 	coherence_score = 0
@@ -97,7 +99,7 @@ def coherence_check(currentItem: Item, history: list[Item]) -> float:
 	all_twice = True
 
 	# See if all subjects in the current item are appear once or twice in the history
-	for subject in currentItem.subjects:
+	for subject in current_item.subjects:
 		count = subject_count.get(subject, 0)
 		if count == 0:
 			has_missing = True
@@ -116,16 +118,16 @@ def coherence_check(currentItem: Item, history: list[Item]) -> float:
 		coherence_score = 0
 
 	# Debugging prints
-	# print("\nCurrent Item Subjects:", currentItem.subjects)
+	# print("\nCurrent Item Subjects:", current_item.subjects)
 	# print("History Length:", len(history))
 	# print("Recent History:", [item.subjects for item in recent_history])
 	# print("Subject Count:", subject_count)
 	# print("Coherence Score Before Normalization:", coherence_score)
-	# print("Coherence Score After Normalization:", coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0)
-	# print("Number of Subjects in Current Item:", len(currentItem.subjects))
+	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
+	# print("Number of Subjects in Current Item:", len(current_item.subjects))
 
 	# This should return a score between 0 and 1 (Not exactly the 0 .5 1 you wanted can be changed later)
-	# return coherence_score / len(currentItem.subjects) if currentItem.subjects else 0.0
+	# return coherence_score / len(current_item.subjects) if current_item.subjects else 0.0
 
 	return (coherence_score + 1) / 2
 
@@ -168,9 +170,9 @@ def calculate_weighted_score(
 
 def choose_item(
 	memory_bank: list[Item],
-	coherence_scores: dict[Item, float],
-	importance_scores: dict[Item, float],
-	preference_scores: dict[Item, float],
+	coherence_scores: dict[UUID, float],
+	importance_scores: dict[UUID, float],
+	preference_scores: dict[UUID, float],
 ):
 	w1 = 0.4
 	w2 = 0.3
@@ -187,7 +189,8 @@ def choose_item(
 		for item in memory_bank
 	}
 
-	return sorted(weighted_item_scores.items(), key=lambda item: item[1], reverse=True)[0][0]
+	sorted_items = sorted(weighted_item_scores.items(), key=lambda item: item[1], reverse=True)
+	return sorted_items[0][0] if sorted_items else None
 
 	# Takes in the total memory bank and scores each item based on whatever weighting system we have
 	# Actually should make this a function in the class so it can have access to the contributed items/memory bank
