@@ -1,37 +1,43 @@
 from uuid import UUID
 
-from models.player import Item, Player, PlayerSnapshot
+from models.player import GameContext, Item, Player, PlayerSnapshot
 
 
 class Player1(Player):
-	def __init__(self, snapshot: PlayerSnapshot, conversation_length: int) -> None:  # noqa: F821
-		super().__init__(snapshot, conversation_length)
+	def __init__(self, snapshot: PlayerSnapshot, ctx: GameContext) -> None:
+		super().__init__(snapshot, ctx)
 
 		self.subj_pref_ranking = {
 			subject: snapshot.preferences.index(subject) for subject in snapshot.preferences
 		}
-		# player snapshot includes preferences and memory bank of items to contribute
+
+		self.used_items: set[UUID] = set()
+
+		# Adding dynamic playing style where we set the weights for coherence, importance and preference
+		# based on the game context
+		self.w_coh, self.w_imp, self.w_pref = self._init_dynamic_weights(ctx, snapshot)
+
+		# Print Player 1 ID and wait for input
+		# print(f"Player 1 ID: {self.id}")
+		# input("Press Enter to continue...")
 
 	def propose_item(self, history: list[Item]) -> Item | None:
-		print('\nCurrent Memory Bank: ', self.memory_bank)
-		print('\nConversation History: ', history)
+		# print('\nCurrent Memory Bank: ', self.memory_bank)
+		# print('\nConversation History: ', history)
 
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
 		if len(history) == 0:
 			memory_bank_imp = importance_sort(self.memory_bank)
-			# print("Sorted by Important: ", memory_bank_imp)
-			# input("Press Enter to continue... Importance Sort Complete")
 			return memory_bank_imp[0] if memory_bank_imp else None
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
-		filtered_memory_bank = check_repetition(history, self.used_items, self.memory_bank)
-		print('\nFiltered Memory Bank: ', filtered_memory_bank)
+		self._update_used_items(history)
+		filtered_memory_bank = check_repetition(self.memory_bank, self.used_items)
+		# print('\nCurrent Memory Bank: ', len(self.memory_bank))
+		# print('\nFiltered Memory Bank: ', len(filtered_memory_bank))
 
 		# Return None if there are no valid items to propose
-		# This can be changed in future just incase we run out of things to say and have to repeat. Not sure if this is possible
 		if len(filtered_memory_bank) == 0:
-			print('No valid items to propose after filtering')
-			# Use importance score if no items are left after filtering
 			memory_bank_imp = importance_sort(self.memory_bank)
 			return memory_bank_imp[0] if memory_bank_imp else None
 
@@ -44,18 +50,12 @@ class Player1(Player):
 			for item in filtered_memory_bank
 		}
 
-		# Sort memory bank based on coherence and importance_sort
-		# memory_bank_co = coherence_sort(filtered_memory_bank, history)
-		# print("Sorted by Coherence: ", memory_bank_co)
-		# input("Press Enter to continue... Coherence Sort Complete")
-
-		# memory_bank_imp = importance_sort(filtered_memory_bank)
-
-		# memory_bank_pref = self.preference_sort(filtered_memory_bank)
-
-		# weighted_list = self.weight_matrix(filtered_memory_bank, memory_bank_co, memory_bank_imp, memory_bank_pref)
 		item = choose_item(
-			filtered_memory_bank, coherence_scores, importance_scores, preference_scores
+			filtered_memory_bank,
+			coherence_scores,
+			importance_scores,
+			preference_scores,
+			weights=(self.w_coh, self.w_imp, self.w_pref),
 		)
 
 		if item:
@@ -63,24 +63,89 @@ class Player1(Player):
 		else:
 			return None
 
-	# def preference_sort (self, memory_bank: list[Item]):
-	# 	#Returns a list of the memory bank based on preference sorting
-	# 	pref_sorted_items = sorted(memory_bank, key=lambda x: self.custom_pref_sort(x.subjects))
-	# 	return pref_sorted_items
+	def _update_used_items(self, history: list[Item]) -> None:
+		# Update the used_items set with items from history
+		self.used_items.update(item.id for item in history)
 
-	# Personal Variables
-	# last_suggestion: Item
-	used_items: set[UUID] = set()
+	def _init_dynamic_weights(
+		self, ctx: GameContext, snapshot: PlayerSnapshot
+	) -> tuple[float, float, float]:
+		P = ctx.number_of_players
+		L = ctx.conversation_length
+		S = len(snapshot.preferences)
+		B = len(snapshot.memory_bank)
+
+		# Base Weights
+		w_coh, w_imp, w_pref = 0.45, 0.35, 0.20
+
+		# Length of Conversation
+		if L <= 12:
+			# short: focus importance
+			w_coh, w_imp, w_pref = 0.35, 0.50, 0.15
+		elif L >= 31:
+			# long: focus coherence even more strongly
+			w_coh, w_imp, w_pref = 0.65, 0.20, 0.15
+
+		# Player Size
+		if P <= 3:
+			# small: More control, nudge coherence
+			w_coh += 0.05
+			w_imp -= 0.05
+		elif P >= 6:
+			# large: Less control, bank importance more heavily and cut preference
+			w_coh -= 0.10
+			w_imp += 0.10
+			w_pref = max(w_pref - 0.05, 0.10)
+
+		# Subject length
+		if S <= 6:
+			# More Overlap: coherence is easier so focus importance
+			w_imp += 0.05
+			w_coh -= 0.05
+		elif S >= 12:
+			# Less Overlap: harder to hit coherence, but valuable when possible
+			w_coh += 0.10
+			w_imp -= 0.05
+			w_pref -= 0.05
+
+		# Inventory Length
+		if B <= 8:
+			# conservative, focus coherence
+			w_coh += 0.05
+			w_imp -= 0.05
+		elif B >= 16:
+			# Less Conservative, focus importance
+			w_imp += 0.05
+			w_coh -= 0.05
+
+		# clamp to [0,1] and softly renormalize to keep sum≈1
+		w_coh = max(0.0, min(1.0, w_coh))
+		w_imp = max(0.0, min(1.0, w_imp))
+		w_pref = max(0.0, min(1.0, w_pref))
+
+		total = w_coh + w_imp + w_pref
+		if total > 0:
+			w_coh, w_imp, w_pref = (w_coh / total, w_imp / total, w_pref / total)
+
+		# Cap preference weight depending on conversation length
+		if L <= 12 and w_pref > 0.18:
+			w_pref = 0.18
+		elif L >= 31 and w_pref > 0.15:
+			w_pref = 0.15
+
+		# Renormalize after capping preference
+		total = w_coh + w_imp + w_pref
+		if total > 0:
+			w_coh, w_imp, w_pref = (w_coh / total, w_imp / total, w_pref / total)
+
+		return (w_coh, w_imp, w_pref)
 
 
 # Helper Functions #
 
 
-def check_repetition(history: list[Item], used_items, memory_bank) -> list[Item]:
-	# Update the proposed items set with items from history
-	used_items.update(item.id for item in history)
-
-	# Filter out items with IDs already in the proposed items set
+def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Item]:
+	# Filter out items with IDs already in the used_items set
 	return [item for item in memory_bank if item.id not in used_items]
 
 
@@ -128,9 +193,6 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
 	# print("Number of Subjects in Current Item:", len(current_item.subjects))
 
-	# This should return a score between 0 and 1 (Not exactly the 0 .5 1 you wanted can be changed later)
-	# return coherence_score / len(current_item.subjects) if current_item.subjects else 0.0
-
 	return (coherence_score + 1) / 2
 
 
@@ -175,15 +237,8 @@ def choose_item(
 	coherence_scores: dict[UUID, float],
 	importance_scores: dict[UUID, float],
 	preference_scores: dict[UUID, float],
+	weights: tuple[float, float, float],
 ):
-	w1 = 0.4
-	w2 = 0.3
-	w3 = 0.3
-
-	# tune weights somehow
-
-	weights = w1, w2, w3
-
 	weighted_item_scores = {
 		item: calculate_weighted_score(
 			item.id, coherence_scores, importance_scores, preference_scores, weights
