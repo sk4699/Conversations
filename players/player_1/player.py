@@ -1,3 +1,4 @@
+from collections import Counter
 from uuid import UUID
 
 from models.player import GameContext, Item, Player, PlayerSnapshot
@@ -15,7 +16,7 @@ class Player1(Player):
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
-		self.w_coh, self.w_imp, self.w_pref = self._init_dynamic_weights(ctx, snapshot)
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon = self._init_dynamic_weights(ctx, snapshot)
 
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
@@ -49,13 +50,17 @@ class Player1(Player):
 			item.id: score_item_preference(item.subjects, self.subj_pref_ranking)
 			for item in filtered_memory_bank
 		}
+		nonmonotonousness_scores = {
+			item.id: score_nonmonotonousness(item, history) for item in filtered_memory_bank
+		}
 
 		item = choose_item(
 			filtered_memory_bank,
 			coherence_scores,
 			importance_scores,
 			preference_scores,
-			weights=(self.w_coh, self.w_imp, self.w_pref),
+			nonmonotonousness_scores,
+			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon),
 		)
 
 		if item:
@@ -76,15 +81,15 @@ class Player1(Player):
 		B = len(snapshot.memory_bank)
 
 		# Base Weights
-		w_coh, w_imp, w_pref = 0.45, 0.35, 0.20
+		w_coh, w_imp, w_pref, w_nonmon = 0.4, 0.3, 0.2, 0.1
 
 		# Length of Conversation
 		if L <= 12:
 			# short: focus importance
-			w_coh, w_imp, w_pref = 0.35, 0.50, 0.15
+			w_coh, w_imp, w_pref, w_nonmon = 0.3, 0.45, 0.2, 0.05
 		elif L >= 31:
 			# long: focus coherence even more strongly
-			w_coh, w_imp, w_pref = 0.65, 0.20, 0.15
+			w_coh, w_imp, w_pref, w_nonmon = 0.5, 0.2, 0.15, 0.15
 
 		# Player Size
 		if P <= 3:
@@ -93,9 +98,9 @@ class Player1(Player):
 			w_imp -= 0.05
 		elif P >= 6:
 			# large: Less control, bank importance more heavily and cut preference
-			w_coh -= 0.10
-			w_imp += 0.10
-			w_pref = max(w_pref - 0.05, 0.10)
+			w_coh -= 0.1
+			w_imp += 0.1
+			w_pref = max(w_pref - 0.05, 0.1)
 
 		# Subject length
 		if S <= 6:
@@ -106,7 +111,7 @@ class Player1(Player):
 			# Less Overlap: harder to hit coherence, but valuable when possible
 			w_coh += 0.10
 			w_imp -= 0.05
-			w_pref -= 0.05
+			w_pref = max(w_pref - 0.05, 0.10)
 
 		# Inventory Length
 		if B <= 8:
@@ -122,10 +127,11 @@ class Player1(Player):
 		w_coh = max(0.0, min(1.0, w_coh))
 		w_imp = max(0.0, min(1.0, w_imp))
 		w_pref = max(0.0, min(1.0, w_pref))
+		w_nonmon = max(0.0, min(1.0, w_nonmon))
 
-		total = w_coh + w_imp + w_pref
+		total = w_coh + w_imp + w_pref + w_nonmon
 		if total > 0:
-			w_coh, w_imp, w_pref = (w_coh / total, w_imp / total, w_pref / total)
+			w_coh, w_imp, w_pref, w_nonmon = (w_coh / total, w_imp / total, w_pref / total, w_nonmon / total)
 
 		# Cap preference weight depending on conversation length
 		if L <= 12 and w_pref > 0.18:
@@ -134,11 +140,11 @@ class Player1(Player):
 			w_pref = 0.15
 
 		# Renormalize after capping preference
-		total = w_coh + w_imp + w_pref
+		total = w_coh + w_imp + w_pref + w_nonmon
 		if total > 0:
-			w_coh, w_imp, w_pref = (w_coh / total, w_imp / total, w_pref / total)
+			w_coh, w_imp, w_pref, w_nonmon = (w_coh / total, w_imp / total, w_pref / total, w_nonmon / total)
 
-		return (w_coh, w_imp, w_pref)
+		return (w_coh, w_imp, w_pref, w_nonmon)
 
 
 # Helper Functions #
@@ -151,38 +157,34 @@ def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Ite
 
 def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
-	recent_history = history[-3:]
-	coherence_score = 0
+	recent_history = []
+	start_idx = max(0, len(history) - 3)
+
+	for i in range(len(history) - 1, start_idx - 1, -1):
+		item = history[i]
+		if item is None:
+			break
+		recent_history.append(item)
 
 	# Count occurrences of each subject in the recent history
-	subject_count = {}
+	subject_count = Counter()
 	for item in recent_history:
-		for subject in item.subjects:
-			subject_count[subject] = subject_count.get(subject, 0) + 1
-
-	has_missing = False
-	all_twice = True
+		subject_count.update(item.subjects)
 
 	# See if all subjects in the current item are appear once or twice in the history
-	for subject in current_item.subjects:
-		count = subject_count.get(subject, 0)
+	subjects = current_item.subjects
+	counts = [subject_count.get(s, 0) for s in subjects]
 
-		if count != 2:
-			if count == 0:
-				has_missing = True
-			else:
-				all_twice = False
-			break
-
-		# if subject_count.get(subject, 0) in [1, 2]:
-		# 	coherence_score += 1
-
-	if has_missing:
-		coherence_score -= 1  # penalize if subject is missing from prior context. can refine later
-	elif all_twice:
-		coherence_score += 1  # reward if all subjects are mentioned exactly twice in prior context
-	else:
-		coherence_score = 0
+	if any(c == 0 for c in counts):
+		return 0.0
+	
+	if all(c >= 2 for c in counts):
+		return 1.0 # awarding full point for 2 mentions
+	
+	if all(c >= 1 for c in counts):
+		return 0.5
+	
+	return 0.0
 
 	# Debugging prints
 	# print("\nCurrent Item Subjects:", current_item.subjects)
@@ -193,7 +195,22 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
 	# print("Number of Subjects in Current Item:", len(current_item.subjects))
 
-	return (coherence_score + 1) / 2
+
+def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
+	recent_history = history[-3:]
+	penalty = 0
+
+	for subj in current_item.subjects:
+		if all(any(prev_subj == subj for prev_subj in prev_item.subjects) for prev_item in recent_history):
+			penalty -= 1
+
+	if current_item in history:
+		penalty -= 1
+
+	max_penalty = len(current_item.subjects) + 1 if current_item.subjects else 1
+
+	score = 1.0 - (penalty / max_penalty)
+	return max(0.0, score)
 
 
 def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
@@ -222,14 +239,15 @@ def score_item_preference(subjects, subj_pref_ranking):
 
 
 def calculate_weighted_score(
-	item_id, coherence_scores, importance_scores, preference_scores, weights
+	item_id, coherence_scores, importance_scores, preference_scores, nonmonotonousness_scores, weights
 ):
-	w1, w2, w3 = weights
+	w1, w2, w3, w4 = weights
 	coherence = coherence_scores.get(item_id, 0.0)
 	importance = importance_scores.get(item_id, 0.0)
 	preference = preference_scores.get(item_id, 0.0)
+	nonmonotonousness = nonmonotonousness_scores.get(item_id, 0.0)
 
-	return w1 * coherence + w2 * importance + w3 * preference
+	return w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness
 
 
 def choose_item(
@@ -237,11 +255,12 @@ def choose_item(
 	coherence_scores: dict[UUID, float],
 	importance_scores: dict[UUID, float],
 	preference_scores: dict[UUID, float],
-	weights: tuple[float, float, float],
+	nonmonotonousness_scores: dict[UUID, float],
+	weights: tuple[float, float, float, float],
 ):
 	weighted_item_scores = {
 		item: calculate_weighted_score(
-			item.id, coherence_scores, importance_scores, preference_scores, weights
+			item.id, coherence_scores, importance_scores, preference_scores, nonmonotonousness_scores, weights
 		)
 		for item in memory_bank
 	}
