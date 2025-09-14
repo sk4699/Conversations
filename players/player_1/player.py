@@ -16,7 +16,9 @@ class Player1(Player):
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
-		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon = self._init_dynamic_weights(ctx, snapshot)
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon = self._init_dynamic_weights(
+			ctx, snapshot
+		)
 		self.ctx = ctx
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
@@ -69,8 +71,15 @@ class Player1(Player):
 		# print("\nWeighted Item Scores:", max(weighted_scores.values(), default=None))
 
 		# Decide to pause or speak
-		if should_pause(history, self.ctx.conversation_length, filtered_memory_bank, best_now, weighted_scores, self.ctx.number_of_players):
-			print("Decided to Pause")
+		if should_pause(
+			history,
+			self.ctx.conversation_length,
+			filtered_memory_bank,
+			best_now,
+			weighted_scores,
+			self.ctx.number_of_players,
+		):
+			print('Decided to Pause')
 			return None  # pause
 
 		return best_item
@@ -108,7 +117,6 @@ class Player1(Player):
 			w_imp += 0.1
 			w_pref = max(w_pref - 0.05, 0.1)
 
-
 		# Inventory Length
 		if B <= 8:
 			# conservative, focus coherence
@@ -127,7 +135,12 @@ class Player1(Player):
 
 		total = w_coh + w_imp + w_pref + w_nonmon
 		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon = (w_coh / total, w_imp / total, w_pref / total, w_nonmon / total)
+			w_coh, w_imp, w_pref, w_nonmon = (
+				w_coh / total,
+				w_imp / total,
+				w_pref / total,
+				w_nonmon / total,
+			)
 
 		# Cap preference weight depending on conversation length
 		if L <= 12 and w_pref > 0.18:
@@ -138,7 +151,12 @@ class Player1(Player):
 		# Renormalize after capping preference
 		total = w_coh + w_imp + w_pref + w_nonmon
 		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon = (w_coh / total, w_imp / total, w_pref / total, w_nonmon / total)
+			w_coh, w_imp, w_pref, w_nonmon = (
+				w_coh / total,
+				w_imp / total,
+				w_pref / total,
+				w_nonmon / total,
+			)
 
 		return (w_coh, w_imp, w_pref, w_nonmon)
 
@@ -173,13 +191,13 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 
 	if any(c == 0 for c in counts):
 		return 0.0
-	
+
 	if all(c >= 2 for c in counts):
-		return 1.0 # awarding full point for 2 mentions
-	
+		return 1.0  # awarding full point for 2 mentions
+
 	if all(c >= 1 for c in counts):
 		return 0.5
-	
+
 	return 0.0
 
 	# Debugging prints
@@ -197,7 +215,10 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 	penalty = 0
 
 	for subj in current_item.subjects:
-		if all(any(prev_subj == subj for prev_subj in prev_item.subjects) for prev_item in recent_history):
+		if all(
+			any(prev_subj == subj for prev_subj in prev_item.subjects)
+			for prev_item in recent_history
+		):
 			penalty -= 1
 
 	if current_item in history:
@@ -235,7 +256,12 @@ def score_item_preference(subjects, subj_pref_ranking):
 
 
 def calculate_weighted_score(
-	item_id, coherence_scores, importance_scores, preference_scores, nonmonotonousness_scores, weights
+	item_id,
+	coherence_scores,
+	importance_scores,
+	preference_scores,
+	nonmonotonousness_scores,
+	weights,
 ):
 	w1, w2, w3, w4 = weights
 	coherence = coherence_scores.get(item_id, 0.0)
@@ -267,14 +293,13 @@ def choose_item(
 	}
 	if not weighted_scores:
 		return None
-	
+
 	# Best candidate now
 	best_item_id, best_now = max(weighted_scores.items(), key=lambda kv: kv[1])
 	best_item = next((it for it in memory_bank if it.id == best_item_id), None)
 
 	# Return Best Item and its score, weighted scores for pause decision
 	return best_item, best_now, weighted_scores
-
 
 	# Takes in the total memory bank and scores each item based on whatever weighting system we have
 	# Actually should make this a function in the class so it can have access to the contributed items/memory bank
@@ -283,10 +308,10 @@ def choose_item(
 	# As its scored, add it to a set thats sorted by the score. Return Set
 
 
-
 ##################################################
 # Helper functions for pause decisions
 ##################################################
+
 
 def count_consecutive_pauses(history: list[Item]) -> int:
 	# Check only the two most recent moves for consecutive pauses
@@ -308,6 +333,7 @@ def get_subjects_last_k(history: list[Item], k: int) -> set[int]:
 		for s in it.subjects:
 			subjs.add(s)
 	return subjs
+
 
 def expected_post_pause_gain(
 	number_of_players: int,
@@ -336,6 +362,7 @@ def expected_post_pause_gain(
 		best_future = max(best_future, score_now + expected_fresh)
 
 	return best_future
+
 
 ####### END OF FRESHNESS HELPERS
 
@@ -377,12 +404,13 @@ def should_pause(
 	if number_of_players >= 6:
 		threshold -= 0.05
 	elif number_of_players <= 3:
-		threshold += 0.05  
+		threshold += 0.05
 
 	# Calculate expected post-pause opportunity (freshness + good candidates)
 	last_5_subjects = get_subjects_last_k(history, 5)
-	best_future = expected_post_pause_gain(number_of_players, last_5_subjects, history, memory_bank, weighted_scores)
-
+	best_future = expected_post_pause_gain(
+		number_of_players, last_5_subjects, history, memory_bank, weighted_scores
+	)
 
 	# If our future item scores look clearly better after pausing, raise the threshold
 	if best_future >= best_now + 0.15:
@@ -392,18 +420,20 @@ def should_pause(
 
 	# ensure threshold is within reasonable bounds
 	threshold = max(0.35, min(0.90, threshold))
-	print(f"Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}, best_future={best_future:.3f})")
-	print(f"Decision Threshold: {best_now < threshold}")
+	print(
+		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}, best_future={best_future:.3f})'
+	)
+	print(f'Decision Threshold: {best_now < threshold}')
 	return best_now < threshold
 
 
-def base_threshold_by_length( L: int) -> float:
+def base_threshold_by_length(L: int) -> float:
 	"""
 	Set the *base* speak/pause threshold by conversation length.
 	Short games: lower threshold.
 	Long games: higher threshold.
 	"""
-	# just what ive noticed testing 
+	# just what ive noticed testing
 	if L <= 8:
 		return 0.55
 	if L <= 15:
