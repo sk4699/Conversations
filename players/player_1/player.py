@@ -338,7 +338,6 @@ def get_subjects_last_k(history: list[Item], k: int) -> set[int]:
 def expected_post_pause_gain(
 	number_of_players: int,
 	subjects_last_k,
-	history: list[Item],
 	filtered_memory_bank: list[Item],
 	weighted_scores: dict[UUID, float],
 ) -> float:
@@ -348,18 +347,19 @@ def expected_post_pause_gain(
 	We scale that bonus by an approximate chance to get the floor: ~1/P.
 	Returns the best expected future score (not delta), i.e., best_item_score_after_pause.
 	"""
-	# subjects seen in last 5 turns (before the pause)
-	last5 = get_subjects_last_k(history, 5)
-	P = max(1, number_of_players)
-
+	P = number_of_players
+	# print(f'Last 5 subjects: {subjects_last_k}, P={P}')
 	best_future = 0.0
 	for it in filtered_memory_bank:
-		novel_count = sum(1 for s in it.subjects if s not in last5)
+		novel_count = sum(1 for s in it.subjects if s not in subjects_last_k)
 		fresh_bonus = float(novel_count)  # 0, 1 or 2
 		# chance we actually get to use that bonus right after a pause
 		expected_fresh = fresh_bonus * (1.0 / P)
 		score_now = weighted_scores.get(it.id, 0.0)
 		best_future = max(best_future, score_now + expected_fresh)
+		# print(
+		# 	f'Item {it.id}: novel={novel_count}, fresh_bonus={fresh_bonus}, expected_fresh={expected_fresh:.3f}, score_now={score_now:.3f}, combined={score_now + expected_fresh:.3f}'
+		# )
 
 	return best_future
 
@@ -382,6 +382,8 @@ def should_pause(
 	# Set a base threshold by conversation length
 	# Short games: lower ceilings on weighted scores = lower threshold.
 	# Long games: higher ceilings = higher threshold.
+
+    # REDO THIS TO MAYBE DECIDE A STARTING THRESHHOLD BASED ON THE AVG WEIGHTED SCORES
 	threshold = base_threshold_by_length(conversation_length)
 
 	# Check and see the last two moves were pauses for risk of termination
@@ -409,7 +411,7 @@ def should_pause(
 	# Calculate expected post-pause opportunity (freshness + good candidates)
 	last_5_subjects = get_subjects_last_k(history, 5)
 	best_future = expected_post_pause_gain(
-		number_of_players, last_5_subjects, history, memory_bank, weighted_scores
+		number_of_players, last_5_subjects, memory_bank, weighted_scores
 	)
 
 	# If our future item scores look clearly better after pausing, raise the threshold
@@ -423,7 +425,6 @@ def should_pause(
 	print(
 		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}, best_future={best_future:.3f})'
 	)
-	print(f'Decision Threshold: {best_now < threshold}')
 	return best_now < threshold
 
 
