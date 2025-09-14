@@ -16,7 +16,7 @@ class Player1(Player):
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
-		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon = self._init_dynamic_weights(
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = self._init_dynamic_weights(
 			ctx, snapshot
 		)
 		self.ctx = ctx
@@ -55,6 +55,15 @@ class Player1(Player):
 		nonmonotonousness_scores = {
 			item.id: score_nonmonotonousness(item, history) for item in filtered_memory_bank
 		}
+		freshness_scores = {
+			item.id: score_freshness(item, history) for item in filtered_memory_bank
+		}
+
+
+		# Checking for if it is a pause turn for the weighting system
+		if history[-1] is None:  # Last move was a pause
+			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
+			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = 0.0, 0.1, 0.1, 0.0, 0.8
 
 		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
@@ -62,7 +71,8 @@ class Player1(Player):
 			importance_scores,
 			preference_scores,
 			nonmonotonousness_scores,
-			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon),
+			freshness_scores,
+			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
 		)
 
 		if best_item is None:
@@ -86,7 +96,9 @@ class Player1(Player):
 
 	def _update_used_items(self, history: list[Item]) -> None:
 		# Update the used_items set with items from history
-		self.used_items.update(item.id for item in history)
+		# if the item is None, it should not be added to the used_items set
+
+		self.used_items.update(item.id for item in history if item is not None)
 
 	def _init_dynamic_weights(
 		self, ctx: GameContext, snapshot: PlayerSnapshot
@@ -96,15 +108,15 @@ class Player1(Player):
 		B = len(snapshot.memory_bank)
 
 		# Base Weights
-		w_coh, w_imp, w_pref, w_nonmon = 0.4, 0.3, 0.2, 0.1
+		w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.4, 0.3, 0.2, 0.1, 0.0
 
 		# Length of Conversation
 		if L <= 12:
 			# short: focus importance
-			w_coh, w_imp, w_pref, w_nonmon = 0.3, 0.45, 0.2, 0.05
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.3, 0.45, 0.2, 0.05, 0.0
 		elif L >= 31:
 			# long: focus coherence even more strongly
-			w_coh, w_imp, w_pref, w_nonmon = 0.5, 0.2, 0.15, 0.15
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.5, 0.2, 0.15, 0.15, 0.0
 
 		# Player Size
 		if P <= 3:
@@ -132,14 +144,16 @@ class Player1(Player):
 		w_imp = max(0.0, min(1.0, w_imp))
 		w_pref = max(0.0, min(1.0, w_pref))
 		w_nonmon = max(0.0, min(1.0, w_nonmon))
+		w_fresh = max(0.0, min(1.0, w_fresh))
 
-		total = w_coh + w_imp + w_pref + w_nonmon
+		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
 		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon = (
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
 				w_coh / total,
 				w_imp / total,
 				w_pref / total,
 				w_nonmon / total,
+				w_fresh / total
 			)
 
 		# Cap preference weight depending on conversation length
@@ -149,16 +163,17 @@ class Player1(Player):
 			w_pref = 0.15
 
 		# Renormalize after capping preference
-		total = w_coh + w_imp + w_pref + w_nonmon
+		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
 		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon = (
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
 				w_coh / total,
 				w_imp / total,
 				w_pref / total,
 				w_nonmon / total,
+				w_fresh / total
 			)
 
-		return (w_coh, w_imp, w_pref, w_nonmon)
+		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
 
 
 # Helper Functions #
@@ -208,6 +223,29 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# print("Coherence Score Before Normalization:", coherence_score)
 	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
 	# print("Number of Subjects in Current Item:", len(current_item.subjects))
+
+def score_freshness(current_item: Item, history: list[Item]) -> float:
+	recent_history = history[-6:-2]  # 5 items before current turn
+	novel_subjects = 0
+
+	#Check for if we have to account for pauses in the recent history
+	history_subjects = set()
+	for item in recent_history:
+		if item is not None:
+			history_subjects.update(item.subjects)
+
+	for subj in current_item.subjects:
+		if subj not in history_subjects:
+			novel_subjects += 1
+
+	#Should the score be 0.5 or maybe 0.75 for one novel subject?
+	if novel_subjects == 0:
+		return 0.0
+	elif novel_subjects == 1:
+		return 0.5
+	else:  # novel_subjects = 2
+		return 1.0
+
 
 
 def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
@@ -261,15 +299,17 @@ def calculate_weighted_score(
 	importance_scores,
 	preference_scores,
 	nonmonotonousness_scores,
+	freshness_scores,
 	weights,
 ):
-	w1, w2, w3, w4 = weights
+	w1, w2, w3, w4, w5= weights
 	coherence = coherence_scores.get(item_id, 0.0)
 	importance = importance_scores.get(item_id, 0.0)
 	preference = preference_scores.get(item_id, 0.0)
 	nonmonotonousness = nonmonotonousness_scores.get(item_id, 0.0)
+	freshness = freshness_scores.get(item_id, 0.0)
 
-	return w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness
+	return w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
 
 
 def choose_item(
@@ -278,6 +318,7 @@ def choose_item(
 	importance_scores: dict[UUID, float],
 	preference_scores: dict[UUID, float],
 	nonmonotonousness_scores: dict[UUID, float],
+	freshness_scores: dict[UUID, float],
 	weights: tuple[float, float, float, float],
 ):
 	weighted_scores = {
@@ -287,6 +328,7 @@ def choose_item(
 			importance_scores,
 			preference_scores,
 			nonmonotonousness_scores,
+			freshness_scores,
 			weights,
 		)
 		for item in memory_bank
