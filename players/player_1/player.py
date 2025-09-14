@@ -184,6 +184,9 @@ def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Ite
 
 def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
+	if current_item is None:
+		return 0.0
+
 	recent_history = []
 	start_idx = max(0, len(history) - 3)
 
@@ -195,7 +198,7 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 
 	# Count occurrences of each subject in the recent history
 	subject_count = Counter()
-	for item in recent_history:
+	for item in recent_history:  # won't be None
 		subject_count.update(item.subjects)
 
 	# See if all subjects in the current item are appear once or twice in the history
@@ -247,11 +250,15 @@ def score_freshness(current_item: Item, history: list[Item]) -> float:
 
 
 def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
+	if current_item is None:
+		return 0.0
+
 	recent_history = history[-3:]
 	penalty = 0
 
 	for subj in current_item.subjects:
 		if all(
+			prev_item is not None and
 			any(prev_subj == subj for prev_subj in prev_item.subjects)
 			for prev_item in recent_history
 		):
