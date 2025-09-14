@@ -84,9 +84,7 @@ class Player1(Player):
 		if should_pause(
 			history,
 			self.ctx.conversation_length,
-			filtered_memory_bank,
 			best_now,
-			weighted_scores,
 			self.ctx.number_of_players,
 		):
 			print('Decided to Pause')
@@ -365,56 +363,10 @@ def count_consecutive_pauses(history: list[Item]) -> int:
 			break
 	return cnt
 
-
-##### THESE CALCULATE FRESHNAESS OPPORTUNITY AFTER A PAUSE
-def get_subjects_last_k(history: list[Item], k: int) -> set[int]:
-	subjs: set[int] = set()
-	for it in history[-k:]:
-		if it is None:
-			subjs.add(None)
-		for s in it.subjects:
-			subjs.add(s)
-	return subjs
-
-
-def expected_post_pause_gain(
-	number_of_players: int,
-	subjects_last_k,
-	filtered_memory_bank: list[Item],
-	weighted_scores: dict[UUID, float],
-) -> float:
-	"""
-	Heuristic: if we pause and then get to speak soon, can we claim freshness?
-	Freshness: +1 per novel subject vs last 5 turns (up to +2 for two-subject items).
-	We scale that bonus by an approximate chance to get the floor: ~1/P.
-	Returns the best expected future score (not delta), i.e., best_item_score_after_pause.
-	"""
-	P = number_of_players
-	# print(f'Last 5 subjects: {subjects_last_k}, P={P}')
-	best_future = 0.0
-	for it in filtered_memory_bank:
-		novel_count = sum(1 for s in it.subjects if s not in subjects_last_k)
-		fresh_bonus = float(novel_count)  # 0, 1 or 2
-		# chance we actually get to use that bonus right after a pause
-		expected_fresh = fresh_bonus * (1.0 / P)
-		score_now = weighted_scores.get(it.id, 0.0)
-		best_future = max(best_future, score_now + expected_fresh)
-		# print(
-		# 	f'Item {it.id}: novel={novel_count}, fresh_bonus={fresh_bonus}, expected_fresh={expected_fresh:.3f}, score_now={score_now:.3f}, combined={score_now + expected_fresh:.3f}'
-		# )
-
-	return best_future
-
-
-####### END OF FRESHNESS HELPERS
-
-
 def should_pause(
 	history: list[Item],
 	conversation_length: int,
-	memory_bank: list[Item],
 	best_now: float,
-	weighted_scores: dict[UUID, float],
 	number_of_players: int,
 ) -> bool:
 	"""
@@ -425,11 +377,12 @@ def should_pause(
 	# Short games: lower ceilings on weighted scores = lower threshold.
 	# Long games: higher ceilings = higher threshold.
 
-    # REDO THIS TO MAYBE DECIDE A STARTING THRESHHOLD BASED ON THE AVG WEIGHTED SCORES
+    # REDO THIS TO MAYBE DECIDE A STARTING THRESHOLD BASED ON THE AVG WEIGHTED SCORES
 	threshold = base_threshold_by_length(conversation_length)
 
 	# Check and see the last two moves were pauses for risk of termination
 	cons_pauses = count_consecutive_pauses(history)
+	# print(f'Consecutive Pauses: {cons_pauses}')
 	if cons_pauses >= 2:
 		# Pausing risks immediate termination; lower threshold so we prefer to speak
 		threshold -= 0.30
@@ -439,6 +392,7 @@ def should_pause(
 	# See the number of turns left; fewer turns left means we should lower threshold and speak more
 	turns_so_far = sum(1 for it in history if it is not None or it is None)  # history length
 	turns_left = max(0, conversation_length - turns_so_far)
+	# print(f'Turns Left: {turns_left}')
 	if turns_left <= 3:
 		threshold -= 0.10
 	elif turns_left <= 6:
@@ -450,22 +404,10 @@ def should_pause(
 	elif number_of_players <= 3:
 		threshold += 0.05
 
-	# Calculate expected post-pause opportunity (freshness + good candidates)
-	last_5_subjects = get_subjects_last_k(history, 5)
-	best_future = expected_post_pause_gain(
-		number_of_players, last_5_subjects, memory_bank, weighted_scores
-	)
-
-	# If our future item scores look clearly better after pausing, raise the threshold
-	if best_future >= best_now + 0.15:
-		threshold += 0.10
-	elif best_future <= best_now - 0.15:
-		threshold -= 0.05
-
 	# ensure threshold is within reasonable bounds
 	threshold = max(0.35, min(0.90, threshold))
 	print(
-		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}, best_future={best_future:.3f})'
+		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
 	)
 	return best_now < threshold
 
