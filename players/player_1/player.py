@@ -17,7 +17,7 @@ class Player1(Player):
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
 		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon = self._init_dynamic_weights(ctx, snapshot)
-
+		self.ctx = ctx
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
 		# input("Press Enter to continue...")
@@ -54,7 +54,7 @@ class Player1(Player):
 			item.id: score_nonmonotonousness(item, history) for item in filtered_memory_bank
 		}
 
-		item = choose_item(
+		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
 			coherence_scores,
 			importance_scores,
@@ -63,10 +63,17 @@ class Player1(Player):
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon),
 		)
 
-		if item:
-			return item
-		else:
+		if best_item is None:
 			return None
+
+		# print("\nWeighted Item Scores:", max(weighted_scores.values(), default=None))
+
+		# Decide to pause or speak
+		if should_pause(history, self.ctx.conversation_length, filtered_memory_bank, best_now, weighted_scores, self.ctx.number_of_players):
+			print("Decided to Pause")
+			return None  # pause
+
+		return best_item
 
 	def _update_used_items(self, history: list[Item]) -> None:
 		# Update the used_items set with items from history
@@ -77,7 +84,6 @@ class Player1(Player):
 	) -> tuple[float, float, float]:
 		P = ctx.number_of_players
 		L = ctx.conversation_length
-		S = len(snapshot.preferences)
 		B = len(snapshot.memory_bank)
 
 		# Base Weights
@@ -102,16 +108,6 @@ class Player1(Player):
 			w_imp += 0.1
 			w_pref = max(w_pref - 0.05, 0.1)
 
-		# Subject length
-		if S <= 6:
-			# More Overlap: coherence is easier so focus importance
-			w_imp += 0.05
-			w_coh -= 0.05
-		elif S >= 12:
-			# Less Overlap: harder to hit coherence, but valuable when possible
-			w_coh += 0.10
-			w_imp -= 0.05
-			w_pref = max(w_pref - 0.05, 0.10)
 
 		# Inventory Length
 		if B <= 8:
@@ -258,18 +254,162 @@ def choose_item(
 	nonmonotonousness_scores: dict[UUID, float],
 	weights: tuple[float, float, float, float],
 ):
-	weighted_item_scores = {
-		item: calculate_weighted_score(
-			item.id, coherence_scores, importance_scores, preference_scores, nonmonotonousness_scores, weights
+	weighted_scores = {
+		item.id: calculate_weighted_score(
+			item.id,
+			coherence_scores,
+			importance_scores,
+			preference_scores,
+			nonmonotonousness_scores,
+			weights,
 		)
 		for item in memory_bank
 	}
+	if not weighted_scores:
+		return None
+	
+	# Best candidate now
+	best_item_id, best_now = max(weighted_scores.items(), key=lambda kv: kv[1])
+	best_item = next((it for it in memory_bank if it.id == best_item_id), None)
 
-	sorted_items = sorted(weighted_item_scores.items(), key=lambda item: item[1], reverse=True)
-	return sorted_items[0][0] if sorted_items else None
+	# Return Best Item and its score, weighted scores for pause decision
+	return best_item, best_now, weighted_scores
+
 
 	# Takes in the total memory bank and scores each item based on whatever weighting system we have
 	# Actually should make this a function in the class so it can have access to the contributed items/memory bank
 	# Should automatically score things that were already in the contributed items a 0
 
 	# As its scored, add it to a set thats sorted by the score. Return Set
+
+
+
+##################################################
+# Helper functions for pause decisions
+##################################################
+
+def count_consecutive_pauses(history: list[Item]) -> int:
+	# Check only the two most recent moves for consecutive pauses
+	cnt = 0
+	for it in reversed(history[-2:]):  # Limit to the last two moves
+		if it is None:
+			cnt += 1
+		else:
+			break
+	return cnt
+
+
+##### THESE CALCULATE FRESHNAESS OPPORTUNITY AFTER A PAUSE
+def get_subjects_last_k(history: list[Item], k: int) -> set[int]:
+	subjs: set[int] = set()
+	for it in history[-k:]:
+		if it is None:
+			subjs.add(None)
+		for s in it.subjects:
+			subjs.add(s)
+	return subjs
+
+def expected_post_pause_gain(
+	number_of_players: int,
+	subjects_last_k,
+	history: list[Item],
+	filtered_memory_bank: list[Item],
+	weighted_scores: dict[UUID, float],
+) -> float:
+	"""
+	Heuristic: if we pause and then get to speak soon, can we claim freshness?
+	Freshness: +1 per novel subject vs last 5 turns (up to +2 for two-subject items).
+	We scale that bonus by an approximate chance to get the floor: ~1/P.
+	Returns the best expected future score (not delta), i.e., best_item_score_after_pause.
+	"""
+	# subjects seen in last 5 turns (before the pause)
+	last5 = get_subjects_last_k(history, 5)
+	P = max(1, number_of_players)
+
+	best_future = 0.0
+	for it in filtered_memory_bank:
+		novel_count = sum(1 for s in it.subjects if s not in last5)
+		fresh_bonus = float(novel_count)  # 0, 1 or 2
+		# chance we actually get to use that bonus right after a pause
+		expected_fresh = fresh_bonus * (1.0 / P)
+		score_now = weighted_scores.get(it.id, 0.0)
+		best_future = max(best_future, score_now + expected_fresh)
+
+	return best_future
+
+####### END OF FRESHNESS HELPERS
+
+
+def should_pause(
+	history: list[Item],
+	conversation_length: int,
+	memory_bank: list[Item],
+	best_now: float,
+	weighted_scores: dict[UUID, float],
+	number_of_players: int,
+) -> bool:
+	"""
+	Compute a dynamic threshold for speaking.
+	Return True if we should pause (i.e., best_now < threshold).
+	"""
+	# Set a base threshold by conversation length
+	# Short games: lower ceilings on weighted scores = lower threshold.
+	# Long games: higher ceilings = higher threshold.
+	threshold = base_threshold_by_length(conversation_length)
+
+	# Check and see the last two moves were pauses for risk of termination
+	cons_pauses = count_consecutive_pauses(history)
+	if cons_pauses >= 2:
+		# Pausing risks immediate termination; lower threshold so we prefer to speak
+		threshold -= 0.30
+	elif cons_pauses == 1:
+		threshold -= 0.15
+
+	# See the number of turns left; fewer turns left means we should lower threshold and speak more
+	turns_so_far = sum(1 for it in history if it is not None or it is None)  # history length
+	turns_left = max(0, conversation_length - turns_so_far)
+	if turns_left <= 3:
+		threshold -= 0.10
+	elif turns_left <= 6:
+		threshold -= 0.05
+
+	# THIS MIGHT NEEd TWEAKED IM NOT TOO SURE ABOUT IT
+	if number_of_players >= 6:
+		threshold -= 0.05
+	elif number_of_players <= 3:
+		threshold += 0.05  
+
+	# Calculate expected post-pause opportunity (freshness + good candidates)
+	last_5_subjects = get_subjects_last_k(history, 5)
+	best_future = expected_post_pause_gain(number_of_players, last_5_subjects, history, memory_bank, weighted_scores)
+
+
+	# If our future item scores look clearly better after pausing, raise the threshold
+	if best_future >= best_now + 0.15:
+		threshold += 0.10
+	elif best_future <= best_now - 0.15:
+		threshold -= 0.05
+
+	# ensure threshold is within reasonable bounds
+	threshold = max(0.35, min(0.90, threshold))
+	print(f"Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}, best_future={best_future:.3f})")
+	print(f"Decision Threshold: {best_now < threshold}")
+	return best_now < threshold
+
+
+def base_threshold_by_length( L: int) -> float:
+	"""
+	Set the *base* speak/pause threshold by conversation length.
+	Short games: lower threshold.
+	Long games: higher threshold.
+	"""
+	# just what ive noticed testing 
+	if L <= 8:
+		return 0.55
+	if L <= 15:
+		return 0.60
+	if L <= 25:
+		return 0.68
+	if L <= 40:
+		return 0.75
+	return 0.80
