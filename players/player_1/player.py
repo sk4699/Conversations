@@ -59,6 +59,7 @@ class Player1(Player):
 			item.id: score_freshness(item, history) for item in filtered_memory_bank
 		}
 
+		score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 
 		# Checking for if it is a pause turn for the weighting system
 		if history[-1] is None:  # Last move was a pause
@@ -67,11 +68,7 @@ class Player1(Player):
 
 		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
-			coherence_scores,
-			importance_scores,
-			preference_scores,
-			nonmonotonousness_scores,
-			freshness_scores,
+			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
 		)
 
@@ -313,34 +310,26 @@ def score_item_preference(subjects, subj_pref_ranking):
 
 def calculate_weighted_score(
 	item_id,
-	coherence_scores,
-	importance_scores,
-	preference_scores,
-	nonmonotonousness_scores,
-	freshness_scores,
+	scaled_scores,
 	weights,
 ):
 	w1, w2, w3, w4, w5= weights
-	coherence = coherence_scores.get(item_id, 0.0)
-	importance = importance_scores.get(item_id, 0.0)
-	preference = preference_scores.get(item_id, 0.0)
-	nonmonotonousness = nonmonotonousness_scores.get(item_id, 0.0)
-	freshness = freshness_scores.get(item_id, 0.0)
+
+	coherence = scaled_scores["coherence"].get(item_id, 0.0)
+	importance = scaled_scores["importance"].get(item_id, 0.0)
+	preference = scaled_scores["preference"].get(item_id, 0.0)
+	nonmonotonousness = scaled_scores["nonmonotonousness"].get(item_id, 0.0)
+	freshness = scaled_scores["freshness"].get(item_id, 0.0)
 
 	return w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
 
 
 def choose_item(
 	memory_bank: list[Item],
-	coherence_scores: dict[UUID, tuple[float, float]],
-	importance_scores: dict[UUID, tuple[float, float]],
-	preference_scores: dict[UUID, tuple[float, float]],
-	nonmonotonousness_scores: dict[UUID, tuple[float, float]],
-	freshness_scores: dict[UUID, tuple[float, float]],
+	score_sources: dict[str, dict[UUID, tuple[float, float]]],
 	weights: tuple[float, float, float, float, float],
 ):
 	
-	score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 	scaled_scores = {"coherence": {}, "importance": {}, "preference": {}, "nonmonotonousness": {}, "freshness": {}}
 	total_raw_scores = {}
 
@@ -357,11 +346,7 @@ def choose_item(
 	total_weighted_scores = {
 		item.id: calculate_weighted_score(
 			item.id,
-			scaled_scores["coherence"],
-			scaled_scores["importance"],
-			scaled_scores["preference"],
-			scaled_scores["nonmonotonousness"],
-			scaled_scores["freshness"],
+			scaled_scores,
 			weights
 		)
 		for item in memory_bank
