@@ -93,7 +93,7 @@ class Player1(Player):
 			best_now,
 			self.ctx.number_of_players,
 		):
-			print('Decided to Pause')
+			# print('Decided to Pause')
 			return None  # pause
 
 		return best_item
@@ -422,9 +422,9 @@ def should_pause(
 
 	# ensure threshold is within reasonable bounds
 	threshold = max(0.35, min(0.90, threshold))
-	print(
-		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
-	)
+	# print(
+	# 	f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
+	# )
 	return best_now < threshold
 
 
