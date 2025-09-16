@@ -47,7 +47,7 @@ class Player1(Player):
 		coherence_scores = {
 			item.id: coherence_check(item, history) for item in filtered_memory_bank
 		}
-		importance_scores = {item.id: item.importance for item in filtered_memory_bank}
+		importance_scores = {item.id: (item.importance, item.importance) for item in filtered_memory_bank}
 		preference_scores = {
 			item.id: score_item_preference(item.subjects, self.subj_pref_ranking)
 			for item in filtered_memory_bank
@@ -58,6 +58,8 @@ class Player1(Player):
 		freshness_scores = {
 			item.id: score_freshness(item, history) for item in filtered_memory_bank
 		}
+
+		score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 
 		# Checking for if it is a pause turn for the weighting system
 		if history[-1] is None:  # Last move was a pause
@@ -72,11 +74,7 @@ class Player1(Player):
 
 		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
-			coherence_scores,
-			importance_scores,
-			preference_scores,
-			nonmonotonousness_scores,
-			freshness_scores,
+			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
 		)
 
@@ -191,7 +189,9 @@ def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Ite
 def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# Check the last 3 items in history (or fewer if history is shorter)
 	if current_item is None:
-		return 0.0
+		raw_score = 0.0
+		scaled_score = 0.0
+		return raw_score, scaled_score
 
 	recent_history = []
 	start_idx = max(0, len(history) - 3)
@@ -210,17 +210,18 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# See if all subjects in the current item are appear once or twice in the history
 	subjects = current_item.subjects
 	counts = [subject_count.get(s, 0) for s in subjects]
+	raw_score, scaled_score = 0.0, 0.0
 
 	if any(c == 0 for c in counts):
-		return 0.0
-
-	if all(c >= 2 for c in counts):
-		return 1.0  # awarding full point for 2 mentions
-
-	if all(c >= 1 for c in counts):
-		return 0.5
-
-	return 0.0
+		raw_score = -1.0
+		scaled_score = 0.0
+	elif all(c >= 2 for c in counts):
+		raw_score = 1.0
+		scaled_score = 1.0
+	elif all(c == 1 for c in counts):
+		raw_score = 0.5
+		scaled_score = 0.5
+	return raw_score, scaled_score
 
 	# Debugging prints
 	# print("\nCurrent Item Subjects:", current_item.subjects)
@@ -248,11 +249,17 @@ def score_freshness(current_item: Item, history: list[Item]) -> float:
 
 	# Should the score be 0.5 or maybe 0.75 for one novel subject?
 	if novel_subjects == 0:
-		return 0.0
+		raw_score = 0.0
+		scaled_score = 0.0
+		return raw_score, scaled_score
 	elif novel_subjects == 1:
-		return 0.5
+		raw_score = 1.0
+		scaled_score = 0.5
 	else:  # novel_subjects = 2
-		return 1.0
+		raw_score = 2.0
+		scaled_score = 1.0
+
+	return raw_score, scaled_score
 
 
 def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
@@ -272,10 +279,12 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 	if current_item in history:
 		penalty -= 1
 
+	raw_score = penalty
+
 	max_penalty = len(current_item.subjects) + 1 if current_item.subjects else 1
 
-	score = 1.0 - (penalty / max_penalty)
-	return max(0.0, score)
+	scaled_score = 1.0 - (penalty / max_penalty)  # higher scaled score is more nonmonotonous
+	return raw_score, scaled_score
 
 
 def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
@@ -300,24 +309,23 @@ def score_item_preference(subjects, subj_pref_ranking):
 	bonuses = [
 		1 - subj_pref_ranking.get(subject, S_length) / S_length for subject in subjects
 	]  # bonus is already a preference score of sorts
-	return sum(bonuses) / len(bonuses)
+	raw_score = sum(bonuses) / len(bonuses)
+	scaled_score = raw_score
+	return raw_score, scaled_score
 
 
 def calculate_weighted_score(
 	item_id,
-	coherence_scores,
-	importance_scores,
-	preference_scores,
-	nonmonotonousness_scores,
-	freshness_scores,
+	scaled_scores,
 	weights,
 ):
 	w1, w2, w3, w4, w5 = weights
-	coherence = coherence_scores.get(item_id, 0.0)
-	importance = importance_scores.get(item_id, 0.0)
-	preference = preference_scores.get(item_id, 0.0)
-	nonmonotonousness = nonmonotonousness_scores.get(item_id, 0.0)
-	freshness = freshness_scores.get(item_id, 0.0)
+
+	coherence = scaled_scores["coherence"].get(item_id, 0.0)
+	importance = scaled_scores["importance"].get(item_id, 0.0)
+	preference = scaled_scores["preference"].get(item_id, 0.0)
+	nonmonotonousness = scaled_scores["nonmonotonousness"].get(item_id, 0.0)
+	freshness = scaled_scores["freshness"].get(item_id, 0.0)
 
 	return (
 		w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
@@ -326,34 +334,46 @@ def calculate_weighted_score(
 
 def choose_item(
 	memory_bank: list[Item],
-	coherence_scores: dict[UUID, float],
-	importance_scores: dict[UUID, float],
-	preference_scores: dict[UUID, float],
-	nonmonotonousness_scores: dict[UUID, float],
-	freshness_scores: dict[UUID, float],
-	weights: tuple[float, float, float, float],
+	score_sources: dict[str, dict[UUID, tuple[float, float]]],
+	weights: tuple[float, float, float, float, float],
 ):
-	weighted_scores = {
+	
+	scaled_scores = {"coherence": {}, "importance": {}, "preference": {}, "nonmonotonousness": {}, "freshness": {}}
+	total_raw_scores = {}
+
+	for item in memory_bank:
+		item_id = item.id
+		raw_score_sum = 0
+
+		for key in score_sources:
+			raw_score_sum += score_sources[key][item_id][0]
+			scaled_scores[key][item_id] = score_sources[key][item_id][1]
+
+		total_raw_scores[item_id] = raw_score_sum
+
+	total_weighted_scores = {
 		item.id: calculate_weighted_score(
 			item.id,
-			coherence_scores,
-			importance_scores,
-			preference_scores,
-			nonmonotonousness_scores,
-			freshness_scores,
-			weights,
+			scaled_scores,
+			weights
 		)
 		for item in memory_bank
 	}
-	if not weighted_scores:
-		return None
 
+	a = 1
+	b = 0
+
+	final_scores = {item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id] for item in memory_bank}
+
+	if not final_scores:
+		return None
+	
 	# Best candidate now
-	best_item_id, best_now = max(weighted_scores.items(), key=lambda kv: kv[1])
+	best_item_id, best_now = max(final_scores.items(), key=lambda kv: kv[1])
 	best_item = next((it for it in memory_bank if it.id == best_item_id), None)
 
 	# Return Best Item and its score, weighted scores for pause decision
-	return best_item, best_now, weighted_scores
+	return best_item, best_now, final_scores
 
 	# Takes in the total memory bank and scores each item based on whatever weighting system we have
 	# Actually should make this a function in the class so it can have access to the contributed items/memory bank
