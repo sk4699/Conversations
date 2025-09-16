@@ -16,8 +16,8 @@ class Player1(Player):
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
-		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = self._init_dynamic_weights(
-			ctx, snapshot
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
+			self._init_dynamic_weights(ctx, snapshot)
 		)
 		self.ctx = ctx
 		# Print Player 1 ID and wait for input
@@ -64,7 +64,13 @@ class Player1(Player):
 		# Checking for if it is a pause turn for the weighting system
 		if history[-1] is None:  # Last move was a pause
 			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
-			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = 0.0, 0.1, 0.1, 0.0, 0.8
+			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
+				0.0,
+				0.1,
+				0.1,
+				0.0,
+				0.8,
+			)
 
 		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
@@ -79,12 +85,13 @@ class Player1(Player):
 
 		# Decide to pause or speak
 		if should_pause(
+			weighted_scores,
 			history,
 			self.ctx.conversation_length,
 			best_now,
 			self.ctx.number_of_players,
 		):
-			print('Decided to Pause')
+			# print('Decided to Pause')
 			return None  # pause
 
 		return best_item
@@ -148,7 +155,7 @@ class Player1(Player):
 				w_imp / total,
 				w_pref / total,
 				w_nonmon / total,
-				w_fresh / total
+				w_fresh / total,
 			)
 
 		# Cap preference weight depending on conversation length
@@ -165,7 +172,7 @@ class Player1(Player):
 				w_imp / total,
 				w_pref / total,
 				w_nonmon / total,
-				w_fresh / total
+				w_fresh / total,
 			)
 
 		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
@@ -225,11 +232,12 @@ def coherence_check(current_item: Item, history: list[Item]) -> float:
 	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
 	# print("Number of Subjects in Current Item:", len(current_item.subjects))
 
+
 def score_freshness(current_item: Item, history: list[Item]) -> float:
 	recent_history = history[-6:-2]  # 5 items before current turn
 	novel_subjects = 0
 
-	#Check for if we have to account for pauses in the recent history
+	# Check for if we have to account for pauses in the recent history
 	history_subjects = set()
 	for item in recent_history:
 		if item is not None:
@@ -239,7 +247,7 @@ def score_freshness(current_item: Item, history: list[Item]) -> float:
 		if subj not in history_subjects:
 			novel_subjects += 1
 
-	#Should the score be 0.5 or maybe 0.75 for one novel subject?
+	# Should the score be 0.5 or maybe 0.75 for one novel subject?
 	if novel_subjects == 0:
 		raw_score = 0.0
 		scaled_score = 0.0
@@ -254,7 +262,6 @@ def score_freshness(current_item: Item, history: list[Item]) -> float:
 	return raw_score, scaled_score
 
 
-
 def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 	if current_item is None:
 		return 0.0
@@ -264,8 +271,7 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 
 	for subj in current_item.subjects:
 		if all(
-			prev_item is not None and
-			any(prev_subj == subj for prev_subj in prev_item.subjects)
+			prev_item is not None and any(prev_subj == subj for prev_subj in prev_item.subjects)
 			for prev_item in recent_history
 		):
 			penalty -= 1
@@ -313,7 +319,7 @@ def calculate_weighted_score(
 	scaled_scores,
 	weights,
 ):
-	w1, w2, w3, w4, w5= weights
+	w1, w2, w3, w4, w5 = weights
 
 	coherence = scaled_scores["coherence"].get(item_id, 0.0)
 	importance = scaled_scores["importance"].get(item_id, 0.0)
@@ -321,7 +327,9 @@ def calculate_weighted_score(
 	nonmonotonousness = scaled_scores["nonmonotonousness"].get(item_id, 0.0)
 	freshness = scaled_scores["freshness"].get(item_id, 0.0)
 
-	return w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
+	return (
+		w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
+	)
 
 
 def choose_item(
@@ -389,7 +397,9 @@ def count_consecutive_pauses(history: list[Item]) -> int:
 			break
 	return cnt
 
+
 def should_pause(
+	weighted_scores: dict[UUID, float],
 	history: list[Item],
 	conversation_length: int,
 	best_now: float,
@@ -403,8 +413,8 @@ def should_pause(
 	# Short games: lower ceilings on weighted scores = lower threshold.
 	# Long games: higher ceilings = higher threshold.
 
-    # REDO THIS TO MAYBE DECIDE A STARTING THRESHOLD BASED ON THE AVG WEIGHTED SCORES
-	threshold = base_threshold_by_length(conversation_length)
+	# REDO THIS TO MAYBE DECIDE A STARTING THRESHOLD BASED ON THE AVG WEIGHTED SCORES
+	threshold = base_threshold(weighted_scores)
 
 	# Check and see the last two moves were pauses for risk of termination
 	cons_pauses = count_consecutive_pauses(history)
@@ -432,25 +442,19 @@ def should_pause(
 
 	# ensure threshold is within reasonable bounds
 	threshold = max(0.35, min(0.90, threshold))
-	print(
-		f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
-	)
+	# print(
+	# 	f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
+	# )
 	return best_now < threshold
 
 
-def base_threshold_by_length(L: int) -> float:
+def base_threshold(weighted_scores) -> float:
 	"""
-	Set the *base* speak/pause threshold by conversation length.
-	Short games: lower threshold.
-	Long games: higher threshold.
+	Set the *base* speak/pause threshold as the average of the top 3 weighted scores.
 	"""
-	# just what ive noticed testing
-	if L <= 8:
-		return 0.55
-	if L <= 15:
-		return 0.60
-	if L <= 25:
-		return 0.68
-	if L <= 40:
-		return 0.75
-	return 0.80
+	if not weighted_scores:
+		return 0.5  # Default threshold if no scores are available
+
+	top_scores = sorted(weighted_scores.values(), reverse=True)[:3]
+	average_score = sum(top_scores) / len(top_scores)
+	return average_score

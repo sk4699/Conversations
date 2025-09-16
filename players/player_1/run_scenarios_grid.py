@@ -21,7 +21,6 @@ import argparse
 import itertools
 import json
 import os
-import random
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -300,7 +299,8 @@ def main():
 		'--seeds',
 		type=int,
 		nargs='+',
-		default=[random.randint(1, 1000) for _ in range(3)],
+		default=[13],
+		# default=[random.randint(1, 1000) for _ in range(3)],
 		help='List of seeds to sweep (default: 3 random numbers)',
 	)
 	ap.add_argument(
