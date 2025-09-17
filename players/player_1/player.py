@@ -180,6 +180,25 @@ class Player1(Player):
 
 # Helper Functions #
 
+def recent_subject_stats(history: list[Item], window: int = 6):
+	# Look back `window` turns (skipping None), return:
+	# - subj_counts: Counter of subjects in the window
+	# - top_freq:    max frequency of any subject (0 if none)
+	# - unique:      number of unique subjects
+	# - seen_recent: set of subjects observed
+	recent = [it for it in history[-window:] if it is not None]
+	subjects = [s for it in recent for s in it.subjects]
+	from collections import Counter
+	subj_counts = Counter(subjects)
+	top_freq = max(subj_counts.values()) if subj_counts else 0
+	unique = len(subj_counts)
+	return subj_counts, top_freq, unique, set(subjects)
+
+
+def inventory_subjects(items: list[Item]) -> set[str]:
+    #All subjects still available to play from the filtered memory bank.
+	return {s for it in items for s in it.subjects}
+
 
 def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Item]:
 	# Filter out items with IDs already in the used_items set
