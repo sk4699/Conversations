@@ -2,7 +2,8 @@ from collections import Counter
 from uuid import UUID
 
 from models.player import GameContext, Item, Player, PlayerSnapshot
-
+import os
+from players.player_1.weight_policy import compute_initial_weights
 
 class Player1(Player):
 	def __init__(self, snapshot: PlayerSnapshot, ctx: GameContext) -> None:
@@ -16,9 +17,17 @@ class Player1(Player):
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
-		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
-			self._init_dynamic_weights(ctx, snapshot)
+		# inside Player1.__init__
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = compute_initial_weights(
+		ctx,
+		snapshot,
+		oracle_path=os.getenv("WEIGHTS_ORACLE_PATH", "players/player_1/data/weights_oracle_index.json"),
+		alpha=0.7,   # tune to your objective blend
+		nn_k=3,      # nearest-neighbor blend if no exact scenario
 		)
+
+		print(f"Initial Weights: Coherence={self.w_coh:.3f}, Importance={self.w_imp:.3f}, Preference={self.w_pref:.3f}, Nonmonotonousness={self.w_nonmon:.3f}, Freshness={self.w_fresh:.3f}")
+
 		self.ctx = ctx
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
