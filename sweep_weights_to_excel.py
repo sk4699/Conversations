@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import math
 import os
 import random
-from typing import Iterator, List, Tuple, Dict, Any
+from collections.abc import Iterator
+from typing import Any
 
 import pandas as pd
 
@@ -11,8 +11,8 @@ from core.engine import Engine
 from models.cli import settings
 from models.player import Player
 from players.player_1.player import Player1
-from players.random_player import RandomPlayer
 from players.random_pause_player import RandomPausePlayer
+from players.random_player import RandomPlayer
 
 # -------- Config --------
 STEP: float = 0.1  # grid step (must evenly divide 1.0)
@@ -21,7 +21,7 @@ BASE_SEED: int = 1337
 
 
 # -------- Simplex grid (sum=1) --------
-def generate_simplex_grid(step: float, dims: int = 5) -> Iterator[Tuple[float, ...]]:
+def generate_simplex_grid(step: float, dims: int = 5) -> Iterator[tuple[float, ...]]:
 	if step <= 0 or step > 1:
 		raise ValueError('STEP must be in (0,1].')
 	N = round(1.0 / step)
@@ -51,8 +51,8 @@ def build_players_list(args) -> list[type[Player]]:
 
 # -------- Run one game for one weight vector --------
 def run_once_with_weights(
-	args, weights: Tuple[float, float, float, float, float], seed_offset: int
-) -> Dict[str, Any]:
+	args, weights: tuple[float, float, float, float, float], seed_offset: int
+) -> dict[str, Any]:
 	players_types = build_players_list(args)
 
 	# Stable seed per run
@@ -103,7 +103,7 @@ def run_once_with_weights(
 
 # -------- Sweep & write Excel --------
 def sweep_and_export(args):
-	rows: List[Dict[str, float]] = []
+	rows: list[dict[str, float]] = []
 	for idx, weights in enumerate(generate_simplex_grid(STEP, dims=5), start=1):
 		metrics = run_once_with_weights(args, weights, seed_offset=idx * 1000)
 		rows.append(
