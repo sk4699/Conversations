@@ -13,6 +13,8 @@ class Player1(Player):
 		}
 
 		self.used_items: set[UUID] = set()
+		self.snapshot = snapshot
+		self.w_strength = 1.0  # Initial weight strength
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
@@ -33,8 +35,13 @@ class Player1(Player):
 			memory_bank_imp = importance_sort(self.memory_bank)
 			return memory_bank_imp[0] if memory_bank_imp else None
 
+		#If the last item in history is in our memory bank, we add it to our contributed items
+		if history[-1] is not None and history[-1] in self.memory_bank and history[-1] not in self.contributed_items:
+			self.contributed_items.append(history[-1])
+		
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
 		self._update_used_items(history)
+
 		filtered_memory_bank = check_repetition(self.memory_bank, self.used_items)
 		# print('\nCurrent Memory Bank: ', len(self.memory_bank))
 		# print('\nFiltered Memory Bank: ', len(filtered_memory_bank))
@@ -61,18 +68,11 @@ class Player1(Player):
 
 		score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 
-		# Checking for if it is a pause turn for the weighting system
-		if history[-1] is None:  # Last move was a pause
-			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
-			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
-				0.0,
-				0.1,
-				0.1,
-				0.0,
-				0.8,
-			)
+		#Freshness Decision is added into the adjustment function
+		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = self.dynamic_adjustment(history, self.ctx, self.snapshot)
 
 		best_item, best_now, weighted_scores = choose_item(
+			self,
 			filtered_memory_bank,
 			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
@@ -98,13 +98,43 @@ class Player1(Player):
 
 	def _update_used_items(self, history: list[Item]) -> None:
 		# Update the used_items set with items from history
+		# Create a set of IDs of items in the player's memory bank	
 		# if the item is None, it should not be added to the used_items set
-
-		self.used_items.update(item.id for item in history if item is not None)
+		#memory_ids = {item.id for item in self.memory_bank}
+		self.used_items.update(
+			item.id for item in history
+			if item is not None)
 
 	def _init_dynamic_weights(
 		self, ctx: GameContext, snapshot: PlayerSnapshot
 	) -> tuple[float, float, float]:
+		# Adjust weights based on game context
+		P = ctx.number_of_players 
+		L = ctx.conversation_length
+		B = len(snapshot.memory_bank) - len(self.contributed_items)
+
+		#Ratio of Coverage
+		R = L / (P*B)
+		# Base Weights
+		w_coh = (R ** 0.5) / ((R ** 0.5) + 1)
+		w_imp = 0.5
+		w_pref = 1 / (R + 1)
+		w_nonmon = R / (R + 1)
+		w_fresh = 0
+
+		#Normalize Weights
+		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
+		if total > 0:
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
+				w_coh / total,
+				w_imp / total,
+				w_pref / total,
+				w_nonmon / total,
+				w_fresh / total,
+			)
+
+		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
+		'''
 		P = ctx.number_of_players
 		L = ctx.conversation_length
 		B = len(snapshot.memory_bank)
@@ -176,7 +206,52 @@ class Player1(Player):
 			)
 
 		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
+'''	
+	def dynamic_adjustment(self, history: list[Item], ctx: GameContext, snapshot: PlayerSnapshot):
+		# Adjust weights based on game context
+		P = ctx.number_of_players 
+		L = ctx.conversation_length - len(history)
+		B = len(snapshot.memory_bank) - len(self.contributed_items)
 
+		
+		#Ratio of Coverage
+		R = 0
+		if B > 0:
+			R = L / (P*B)
+		# Base Weights
+		w_coh = (R ** 0.5) / ((R ** 0.5) + 1)
+		w_imp = 0.5
+		w_pref = 1 / (R + 1)
+		w_nonmon = R / (R + 1)
+		w_fresh = 0
+
+
+		# Checking for if it is a pause turn for the weighting system
+		if history[-1] is None:  # Last move was a pause
+			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
+			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
+				0.0,
+				0.1,
+				0.1,
+				0.0,
+				0.8,
+			)
+
+		#Normalize Weights
+		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
+		if total > 0:
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
+				w_coh / total,
+				w_imp / total,
+				w_pref / total,
+				w_nonmon / total,
+				w_fresh / total,
+			)
+		print("Player ID: ", self.id)
+		print("contributed items: ", (self.contributed_items))
+		print("Coverage Ratio", R, "Length of Conversation Remaining: ", L, " | Number of Players: ", P, " | Items Remaining: ", B)
+		print(f'Weights: Coherence: {w_coh}, Importance: {w_imp}, Preference: {w_pref}, Nonmonotonousness: {w_nonmon}, Freshness: {w_fresh}')
+		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
 
 # Helper Functions #
 
@@ -352,6 +427,7 @@ def calculate_weighted_score(
 
 
 def choose_item(
+	self,
 	memory_bank: list[Item],
 	score_sources: dict[str, dict[UUID, tuple[float, float]]],
 	weights: tuple[float, float, float, float, float],
