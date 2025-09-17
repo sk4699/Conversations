@@ -379,8 +379,8 @@ def choose_item(
 		for item in memory_bank
 	}
 
-	a = 1
-	b = 0
+	a = 0.65
+	b = 0.35
 
 	final_scores = {item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id] for item in memory_bank}
 
