@@ -247,10 +247,10 @@ class Player1(Player):
 				w_nonmon / total,
 				w_fresh / total,
 			)
-		print("Player ID: ", self.id)
-		print("contributed items: ", (self.contributed_items))
-		print("Coverage Ratio", R, "Length of Conversation Remaining: ", L, " | Number of Players: ", P, " | Items Remaining: ", B)
-		print(f'Weights: Coherence: {w_coh}, Importance: {w_imp}, Preference: {w_pref}, Nonmonotonousness: {w_nonmon}, Freshness: {w_fresh}')
+		#print("Player ID: ", self.id)
+		#print("contributed items: ", (self.contributed_items))
+		#print("Coverage Ratio", R, "Length of Conversation Remaining: ", L, " | Number of Players: ", P, " | Items Remaining: ", B)
+		#print(f'Weights: Coherence: {w_coh}, Importance: {w_imp}, Preference: {w_pref}, Nonmonotonousness: {w_nonmon}, Freshness: {w_fresh}')
 		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
 
 # Helper Functions #
