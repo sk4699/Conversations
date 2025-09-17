@@ -1,0 +1,126 @@
+Player1 Weights – Minimal Docs
+===================================
+
+Files
+-----
+1) players/player_1/weight_policy.py   (runtime consumer)
+2) Conversations/generate_weights_oracle.py   (offline generator)
+3) Conversations/players/player_1/data/*     (weight artifacts on disk)
+
+What Player1 knows at init
+--------------------------
+From context and snapshot:
+- P: number_of_players
+- T: conversation_length
+- M: memory bank size (len(snapshot.memory_bank))
+- S: subject count (len(snapshot.preferences))
+
+Runtime: weight_policy.py
+-------------------------
+Public API:
+  compute_initial_weights(ctx, snapshot, *, oracle_path=None, alpha=0.7, nn_k=3) -> (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
+
+Selection order:
+1) Load oracle JSON (path: env WEIGHTS_ORACLE_PATH or default
+   Conversations/players/player_1/data/weights_oracle_index.json).
+2) Try exact match on scenario key (P,T,M,S); if found, return its "best" weights.
+3) If no exact match, pick k nearest scenarios (z-scored distance in P,T,M,S)
+   and return an inverse-distance **blend** of their best weights.
+4) If no oracle file or it’s empty, compute **heuristic** weights from (P,T,M,S).
+
+Behavior details:
+- Clamps each weight to [0.05, 0.60], then renormalizes to sum=1.
+- Heuristic trends: longer T → more coherence & some non-monotonousness,
+  more players → more freshness (to stand out), larger memory → modest coherence/importance boost.
+- Only the INDEX json is read at runtime (see schema below). The robust json
+  produced by the generator is informational—it is NOT consumed by Player1
+  unless you convert/copy its chosen weights into the index file.
+
+Index JSON (what Player1 reads)
+-------------------------------
+Default path:
+  Conversations/players/player_1/data/weights_oracle_index.json
+
+Minimal schema (array entries under key 'index'):
+  {
+    "meta": {...},
+    "index": [
+      {
+        "P": 6, "T": 20, "M": 12, "S": 8,
+        "best": { "weights": [0.25,0.30,0.20,0.10,0.15], "mean_obj": 0.742, "std_obj": 0.031 },
+        "alts": [
+          { "weights": [...], "mean_obj": 0.735, "std_obj": 0.028 },
+          { "weights": [...], "mean_obj": 0.729, "std_obj": 0.026 }
+        ],
+        "n_reps": 8
+      }
+    ]
+  }
+
+Only the 5-number weights tuple is required by Player1; other fields are retained for provenance.
+
+Offline Generator: generate_weights_oracle.py
+---------------------------------------------
+Purpose: produce the **index JSON** file that Player1 reads,
+or (optionally) a robust summary json for analysis.
+
+Modes:
+- robust        → evaluates one global candidate set across a sweep of (T,M,S)
+                  for a fixed P and num_p1; picks a single “best_avg” and “best_worst” weight vector.
+                  (NOTE: Player1 does NOT read the robust json directly.)
+- per-scenario  → evaluates candidates per (P,T,M,S) grid and writes the
+                  **weights_oracle_index.json** that Player1 consumes.
+
+README defaults are always included in the sweep (T=10, M=10, S=20), unless
+overridden via env vars DEFAULT_T, DEFAULT_M, DEFAULT_S.
+
+Typical commands:
+- Robust (all seats Player1 at P=5):
+    python Conversations/generate_weights_oracle.py --mode robust -P 5 --p1-only
+  → Writes: Conversations/players/player_1/data/weights_oracle_robust.json (for reference)
+
+- Per-scenario (produces the index JSON Player1 uses):
+    python Conversations/generate_weights_oracle.py --mode per-scenario       --players-grid 5 --lengths-grid 10 20 28 --mem-grid 8 12 16 --subjects-grid 6 8 10
+  → Writes: Conversations/players/player_1/data/weights_oracle_index.json
+
+Key generator knobs (brief):
+- --alpha: objective blend for ranking candidates (default 0.7)
+- --coord-delta / --n-dirichlet / --dirichlet-kappa: candidate set shape
+- --stageA-reps / --stageB-reps / --top-k: evaluation budget & pruning
+- --num-p1 / --p1-only / --rpause-frac: Player1 count and opponent mix
+- --output-json / --output-robust / --output-table: artifact paths
+
+Artifacts on disk
+-----------------
+- Conversations/players/player_1/data/weights_oracle_index.json
+    → read by Player1 at startup (exact/nearest scenario lookup)
+- Conversations/players/player_1/data/weights_oracle_robust.json
+    → robust winners for reference (not read at runtime)
+- Conversations/players/player_1/data/weights_oracle_full.parquet (or .csv)
+    → detailed evaluation table for analysis/training
+
+Integrating with Player1
+------------------------
+In players/player_1/player.py (init):
+    from players.player_1.weight_policy import compute_initial_weights
+    self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = compute_initial_weights(
+        ctx, snapshot,
+        oracle_path=os.getenv("WEIGHTS_ORACLE_PATH", "Conversations/players/player_1/data/weights_oracle_index.json"),
+        alpha=0.7,
+        nn_k=3,
+    )
+
+Precedence / Fallbacks
+----------------------
+1) INDEX json exact match
+2) INDEX json nearest-neighbor blend (top-k)
+3) Heuristic from (P,T,M,S)
+
+Troubleshooting
+---------------
+- “No weights for my scenario”: run the generator in per-scenario mode with your (P,T,M,S) in-grid; confirm the index file path.
+- “It’s ignoring my robust file”: expected—convert a chosen robust winner into the index json entry for your scenario if you want Player1 to use it.
+- “Scores look noisy”: increase --stageB-reps and/or top-k during generation.
+- “Different Engine behavior”: regenerate the index after Engine changes; don’t reuse old artifacts.
+
+That’s it—these are the only moving parts Player1 touches for weight creation.
