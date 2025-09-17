@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 # Default location for the oracle file (can override via env or arg)
 DEFAULT_ORACLE_PATH = os.getenv(
     "WEIGHTS_ORACLE_PATH",
-    "Conversations/players/player_1/data/weights_oracle_index.json",
+    "players/player_1/data/weights_oracle_index.json",
 )
 
 WeightTuple = Tuple[float, float, float, float, float]  # (coh, imp, pref, nonmon, fresh)
@@ -179,7 +179,7 @@ def compute_initial_weights(ctx, snapshot,
                             nn_k: int = 3) -> WeightTuple:
     """
     Main entry point called by Player1.__init__.
-    Tries oracle lookup (exact or nearest) at Conversations/players/player_1/data/..., else falls back to heuristic.
+    Tries oracle lookup (exact or nearest) at players/player_1/data/..., else falls back to heuristic.
     """
     P = int(getattr(ctx, "number_of_players", 0))
     T = int(getattr(ctx, "conversation_length", 0))

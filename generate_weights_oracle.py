@@ -369,12 +369,12 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--output-table",
-        default="Conversations/players/player_1/data/weights_oracle_full.parquet",
+        default="players/player_1/data/weights_oracle_full.parquet",
         help="Wide table (Parquet/CSV) with evaluations (both modes).",
     )
     ap.add_argument(
         "--output-robust",
-        default="Conversations/players/player_1/data/weights_oracle_robust.json",
+        default="players/player_1/data/weights_oracle_robust.json",
         help="Robust summary JSON (robust mode).",
     )
 

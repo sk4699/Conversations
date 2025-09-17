@@ -27,7 +27,7 @@ class Player1(Player):
 		)
 
 		print(f"Initial Weights: Coherence={self.w_coh:.3f}, Importance={self.w_imp:.3f}, Preference={self.w_pref:.3f}, Nonmonotonousness={self.w_nonmon:.3f}, Freshness={self.w_fresh:.3f}")
-
+		# print(f"SUM: {sum((0.324405, 0.31929, 0.154073, 0.13617, 0.066061))}")
 		self.ctx = ctx
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
@@ -119,10 +119,10 @@ class Player1(Player):
 		B = len(snapshot.memory_bank)
 
 		# Base Weights
-		w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.4, 0.3, 0.2, 0.1, 0.0
+		w_coh, w_imp, w_pref, w_nonmon, w_fresh = (0.324405, 0.31929, 0.154073, 0.13617, 0.066061)
 
 		# Length of Conversation
-		if L <= 12:
+		if L <= 15:
 			# short: focus importance
 			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.3, 0.45, 0.2, 0.05, 0.0
 		elif L >= 31:
@@ -188,6 +188,25 @@ class Player1(Player):
 
 
 # Helper Functions #
+
+def recent_subject_stats(history: list[Item], window: int = 6):
+	# Look back `window` turns (skipping None), return:
+	# - subj_counts: Counter of subjects in the window
+	# - top_freq:    max frequency of any subject (0 if none)
+	# - unique:      number of unique subjects
+	# - seen_recent: set of subjects observed
+	recent = [it for it in history[-window:] if it is not None]
+	subjects = [s for it in recent for s in it.subjects]
+	from collections import Counter
+	subj_counts = Counter(subjects)
+	top_freq = max(subj_counts.values()) if subj_counts else 0
+	unique = len(subj_counts)
+	return subj_counts, top_freq, unique, set(subjects)
+
+
+def inventory_subjects(items: list[Item]) -> set[str]:
+    #All subjects still available to play from the filtered memory bank.
+	return {s for it in items for s in it.subjects}
 
 
 def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Item]:
