@@ -5,7 +5,7 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 # Runtime default (matches your Player1 call)
 DEFAULT_ORACLE_PATH = "players/player_1/data/weights_oracle_index.json"
@@ -13,41 +13,62 @@ DEFAULT_ORACLE_PATH = "players/player_1/data/weights_oracle_index.json"
 # ---------------------------
 # Utilities
 # ---------------------------
+def _clamp_nonneg(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return 0.0
+    return 0.0 if x < 0 or math.isnan(x) else x
+
+def _clamp01(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return 0.0
+    if math.isnan(x):
+        return 0.0
+    if x < 0:
+        return 0.0
+    if x > 1:
+        return 1.0
+    return x
+
 def _clamp_norm(ws: Iterable[float]) -> Tuple[float, ...]:
-    w = [max(0.0, min(1.0, float(x))) for x in ws]
+    w = [_clamp_nonneg(x) for x in ws]
     s = sum(w)
     if s <= 0:
-        return (0.3, 0.3, 0.2, 0.1, 0.1)
+        # safe default triplet
+        if len(w) == 3:
+            return (0.40, 0.35, 0.25)
+        # generic equal partition
+        return tuple(1.0 / max(1, len(w)) for _ in w)
     return tuple(x / s for x in w)
 
-def _heuristic_weights(P: int, T: int, M: int, S: int) -> Tuple[float, ...]:
-    print("Using Heuristics")
-    # Simple, safe fallback mirroring your earlier logic
-    w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.40, 0.30, 0.20, 0.10, 0.00
+def _safe_mix_ab(a: float, b: float) -> Tuple[float, float]:
+    a = _clamp01(a)
+    b = _clamp01(b)
+    s = a + b
+    if s <= 0:
+        return (0.65, 0.35)
+    return (a / s, b / s)
+
+def _heuristic_triplet(P: int, T: int, M: int, S: int) -> Tuple[float, float, float]:
+    """
+    Heuristic defaults for (w_coh, w_imp, w_pref) ONLY.
+    Slightly more coherence for short games, more importance for long games.
+    Preference steady.
+    """
     if T <= 12:
-        w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.30, 0.45, 0.20, 0.05, 0.00
-    elif T >= 31:
-        w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.50, 0.20, 0.15, 0.15, 0.00
-    if P <= 3:
-        w_coh += 0.05; w_imp -= 0.05
-    elif P >= 6:
-        w_coh -= 0.10; w_imp += 0.10; w_pref = max(w_pref - 0.05, 0.10)
-    if M <= 8:
-        w_coh += 0.05; w_imp -= 0.05
-    elif M >= 16:
-        w_imp += 0.05; w_coh -= 0.05
-    w = _clamp_norm((w_coh, w_imp, w_pref, w_nonmon, w_fresh))
-    if T <= 12 and w[2] > 0.18:
-        w = _clamp_norm((w[0], w[1], 0.18, w[3], w[4]))
-    elif T >= 31 and w[2] > 0.15:
-        w = _clamp_norm((w[0], w[1], 0.15, w[3], w[4]))
-    return w
+        w = (0.45, 0.30, 0.25)
+    elif T <= 24:
+        w = (0.40, 0.34, 0.26)
+    else:
+        w = (0.36, 0.38, 0.26)
+    return _clamp_norm(w)
 
 def _heuristic_mix_ab(P: int, T: int, M: int, S: int) -> Tuple[float, float]:
-    # Favor feature-weighted score by default; normalize to a+b=1
-    a, b = 0.90, 0.10
-    s = a + b
-    return (a / s, b / s)
+    # Favor feature-weighted score; normalize to a+b=1
+    return _safe_mix_ab(0.90, 0.10)
 
 @dataclass
 class Scenario:
@@ -56,21 +77,21 @@ class Scenario:
 def _scenario_key(P: int, T: int, M: int, S: int) -> Tuple[int, int, int, int]:
     return (int(P), int(T), int(M), int(S))
 
-def _load_index(path: str) -> Dict[str, Any]:
+def _load_json(path: str) -> Union[dict, list, None]:
     if not path or not os.path.exists(path):
-        return {}
+        return None
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
-        return {}
+        return None
 
 def _collect_stats(entries: List[Dict[str, Any]]) -> Dict[str, Tuple[float, float]]:
     import statistics as st
-    Ps = [e["P"] for e in entries] or [1]
-    Ts = [e["T"] for e in entries] or [1]
-    Ms = [e["M"] for e in entries] or [1]
-    Ss = [e["S"] for e in entries] or [1]
+    Ps = [int(e["P"]) for e in entries] or [1]
+    Ts = [int(e["T"]) for e in entries] or [1]
+    Ms = [int(e["M"]) for e in entries] or [1]
+    Ss = [int(e["S"]) for e in entries] or [1]
     def ms(x): return (st.fmean(x), (st.pstdev(x) if len(x) > 1 else 1.0))
     return {"P": ms(Ps), "T": ms(Ts), "M": ms(Ms), "S": ms(Ss)}
 
@@ -89,6 +110,72 @@ def _blend(vs: List[Tuple[float, ...]], ws: List[float]) -> Tuple[float, ...]:
             out[i] += w * x
     return tuple(out)
 
+# ---------- Oracle readers (support multiple shapes) ----------
+
+def _read_entries_from_per_scenario_payload(data: dict) -> List[Dict[str, Any]]:
+    """
+    New generator format:
+    {
+      "meta": {...},
+      "index": [
+        {
+          "P": ..., "T": ..., "M": ..., "S": ...,
+          "best": { "weights": [w_coh,w_imp,w_pref], "mix_ab": [a,b], ... },
+          "alts": [...]
+        }, ...
+      ]
+    }
+    """
+    idx = data.get("index")
+    return list(idx) if isinstance(idx, list) else []
+
+def _read_entries_from_flat_list(data: list) -> List[Dict[str, Any]]:
+    """
+    Back-compat: list of rows like
+    [{"P":..,"T":..,"M":..,"S":..,"w_coh":..,"w_imp":..,"w_pref":..,"a":..}, ...]
+    """
+    rows: List[Dict[str, Any]] = []
+    for rec in data:
+        if not isinstance(rec, dict):
+            continue
+        if all(k in rec for k in ("P", "T", "M", "S")) and \
+           all(k in rec for k in ("w_coh", "w_imp", "w_pref", "a")):
+            rows.append({
+                "P": rec["P"], "T": rec["T"], "M": rec["M"], "S": rec["S"],
+                "best": {"weights": [rec["w_coh"], rec["w_imp"], rec["w_pref"]],
+                         "mix_ab": [rec.get("a", 0.65), 1.0 - float(rec.get("a", 0.65))]}
+            })
+    return rows
+
+def _normalize_entry_weights_and_mix(e: Dict[str, Any]) -> Tuple[Tuple[float,float,float], Tuple[float,float]]:
+    """
+    Returns ((w_coh,w_imp,w_pref), (a,b)) from an entry regardless of legacy/new shape.
+    - If best.weights has 5 items, keep first 3.
+    - If best.mix_ab missing/invalid, use heuristic.
+    """
+    best = e.get("best", {}) if isinstance(e.get("best"), dict) else {}
+    w_raw = best.get("weights", [])
+    # Handle legacy 5-vector by truncating to first 3
+    if isinstance(w_raw, list) and len(w_raw) >= 3:
+        w3 = _clamp_norm(tuple(float(x) for x in w_raw[:3]))
+    else:
+        # try flat fields fallback (rare)
+        w3 = _clamp_norm((
+            float(e.get("w_coh", 0.4)),
+            float(e.get("w_imp", 0.35)),
+            float(e.get("w_pref", 0.25)),
+        ))
+
+    mix = best.get("mix_ab", [])
+    if not (isinstance(mix, list) and len(mix) == 2):
+        # allow legacy 'a' field at top-level
+        a = float(e.get("a", 0.65))
+        mix_ab = _safe_mix_ab(a, 1.0 - a)
+    else:
+        a, b = mix
+        mix_ab = _safe_mix_ab(float(a), float(b))
+
+    return w3, mix_ab
 
 # Public Method
 
@@ -99,35 +186,50 @@ def compute_initial_weights(
     oracle_path: Optional[str] = None,
     alpha: float = 0.7,
     nn_k: int = 3,
-) -> Tuple[float, float, float, float, float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     """
-    Returns (w_coh, w_imp, w_pref, w_nonmon, w_fresh, a_weighted, b_raw),
-    reading 'weights' and 'mix_ab' from the index file; falls back to heuristics.
+    Returns (w_coh, w_imp, w_pref, a_weighted, b_raw).
+
+    Loads the new per-scenario payload format (payload.index[].best.weights triplet + best.mix_ab [a,b])
+    and falls back to:
+      - legacy flat rows with (w_coh,w_imp,w_pref,a)
+      - or heuristics when nothing matches.
     """
-    P = int(getattr(ctx, "number_of_players", 0))
-    T = int(getattr(ctx, "conversation_length", 0))
-    M = int(len(getattr(snapshot, "memory_bank", []) or []))
-    S = int(len(getattr(snapshot, "preferences", []) or []))
+
+    # Try to read runtime scenario from ctx/snapshot (keep loose to avoid import coupling)
+    P = int(getattr(ctx, "number_of_players", getattr(ctx, "num_players", 0)) or 0)
+    T = int(getattr(ctx, "conversation_length", getattr(ctx, "T", 0)) or 0)
+    # Memory: prefer explicit M on ctx; otherwise size of snapshot memory bank
+    M = int(getattr(ctx, "M", 0) or len(getattr(snapshot, "memory_bank", []) or []))
+    # Subjects: prefer ctx.subjects or snapshot.preferences length
+    S = int(getattr(ctx, "subjects", 0) or len(getattr(snapshot, "preferences", []) or []))
     here = Scenario(P, T, M, S)
 
     path = oracle_path or os.getenv("WEIGHTS_ORACLE_PATH", DEFAULT_ORACLE_PATH)
-    data = _load_index(path)
-    entries: List[Dict[str, Any]] = list(data.get("index", []))
+    raw = _load_json(path)
 
-    # Exact match
+    # Collect candidate entries in a normalized (per-scenario) shape
+    entries: List[Dict[str, Any]] = []
+    if isinstance(raw, dict):
+        # New payload (with "index") or robust winners; prefer per-scenario
+        entries = _read_entries_from_per_scenario_payload(raw)
+        if not entries:
+            # Could be robust payload or something else; try to coerce
+            # Robust payload doesn't directly map to scenario keys, so skip.
+            pass
+    elif isinstance(raw, list):
+        # Flat list of rows from older generator
+        entries = _read_entries_from_flat_list(raw)
+
+    # 1) Exact match
     for e in entries:
-        if (e.get("P"), e.get("T"), e.get("M"), e.get("S")) == _scenario_key(P, T, M, S):
-            w = tuple(e.get("best", {}).get("weights", [])) or _heuristic_weights(P, T, M, S)
-            w = _clamp_norm(w)
-            mix = tuple(e.get("best", {}).get("mix_ab", [])) or _heuristic_mix_ab(P, T, M, S)
-            if len(mix) != 2:
-                mix = _heuristic_mix_ab(P, T, M, S)
-            a, b = mix
-            s = max(1e-9, a + b)
-            print("Found Weights")
-            return (*w, a / s, b / s)
+        key = (int(e.get("P", -1)), int(e.get("T", -1)), int(e.get("M", -1)), int(e.get("S", -1)))
+        if key == _scenario_key(P, T, M, S):
+            w3, (a, b) = _normalize_entry_weights_and_mix(e)
+            print("Weights Found: Exact match from oracle.")
+            return (*w3, a, b)
 
-    # Nearest neighbors (z-score space)
+    # 2) Nearest neighbors (z-score over P,T,M,S)
     if entries:
         stats = _collect_stats(entries)
         cand = []
@@ -142,25 +244,21 @@ def compute_initial_weights(
         s = sum(inv)
         ws_norm = [x / s for x in inv]
 
-        W_vecs, M_vecs = [], []
+        W_vecs: List[Tuple[float,float,float]] = []
+        M_vecs: List[Tuple[float,float]] = []
         for _, e in top:
-            w = tuple(e.get("best", {}).get("weights", [])) or _heuristic_weights(P, T, M, S)
-            W_vecs.append(_clamp_norm(w))
-            mix = tuple(e.get("best", {}).get("mix_ab", [])) or _heuristic_mix_ab(P, T, M, S)
-            if len(mix) != 2:
-                mix = _heuristic_mix_ab(P, T, M, S)
-            a, b = mix
-            t = max(1e-9, a + b)
-            M_vecs.append((a / t, b / t))
+            w3, (a, b) = _normalize_entry_weights_and_mix(e)
+            W_vecs.append(w3)
+            M_vecs.append((a, b))
 
         W = _blend(W_vecs, ws_norm)
         A, B = _blend(M_vecs, ws_norm)
-        s2 = max(1e-9, A + B)
-        print("Computing K Nearest Neighbors")
-        return (*_clamp_norm(W), A / s2, B / s2)
+        A, B = _safe_mix_ab(A, B)
+        print(f"Weights Found: Nearest neighbor blend from oracle (k={len(top)}).")
+        return (*_clamp_norm(W), A, B)
 
-    # Nothing on disk → heuristics
-    W = _heuristic_weights(P, T, M, S)
+    # 3) Nothing on disk → heuristics
+    W = _heuristic_triplet(P, T, M, S)
     a, b = _heuristic_mix_ab(P, T, M, S)
-    s3 = max(1e-9, a + b)
-    return (*W, a / s3, b / s3)
+    print("Weights Found: Heuristic defaults (no oracle).")
+    return (*W, a, b)

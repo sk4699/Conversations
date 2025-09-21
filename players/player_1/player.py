@@ -18,13 +18,15 @@ class Player1(Player):
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
 		# inside Player1.__init__
-		(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh, self.weighted, self.raw) = compute_initial_weights(
+		(self.w_coh, self.w_imp, self.w_pref, self.weighted, self.raw) = compute_initial_weights(
 			ctx,
 			snapshot,
 			oracle_path=os.getenv("WEIGHTS_ORACLE_PATH", "players/player_1/data/weights_oracle_index.json"),
 			alpha=0.7,
 			nn_k=3,
 		)
+		self.w_nonmon = 0.0
+		self.w_fresh  = 0.0
 
 		print(f"Initial Weights: Coherence={self.w_coh:.3f}, Importance={self.w_imp:.3f}, Preference={self.w_pref:.3f}, Nonmonotonousness={self.w_nonmon:.3f}, Freshness={self.w_fresh:.3f}")
 		# print(f"SUM: {sum((0.324405, 0.31929, 0.154073, 0.13617, 0.066061))}")
@@ -71,8 +73,8 @@ class Player1(Player):
 		score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 
 		# Checking for if it is a pause turn for the weighting system
-		if len(history) !=0 and history[-1] is None:  # Last move was a pause
-			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
+		if len(history) != 0 and history[-1] is None:  # Last move was a pause
+			# After a pause, we want freshness to be weighted higher to take advantage of the opportunity
 			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
 				0.0,
 				0.1,
@@ -80,6 +82,21 @@ class Player1(Player):
 				0.0,
 				0.8,
 			)
+		# Checking for nonmonotonousness adjustment
+		elif len(history) >= 3:
+			# If the last three items share subjects with the current item, increase nonmonotonousness weight
+			last_three = history[-3:]
+			if all(
+				(h is not None) and any(s in h.subjects for s in inventory_subjects(filtered_memory_bank))
+				for h in last_three
+			):
+				self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
+					0.05,
+					0.1,
+					0.05,
+					0.8,
+					0.0,
+				)
 
 		best_item, best_now, weighted_scores = choose_item(
 			self.weighted,
