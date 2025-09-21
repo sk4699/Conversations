@@ -7,206 +7,160 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-# Default location for the oracle file (can override via env or arg)
-DEFAULT_ORACLE_PATH = os.getenv(
-    "WEIGHTS_ORACLE_PATH",
-    "players/player_1/data/weights_oracle_index.json",
-)
+# Runtime default (matches your Player1 call)
+DEFAULT_ORACLE_PATH = "players/player_1/data/weights_oracle_index.json"
 
-WeightTuple = Tuple[float, float, float, float, float]  # (coh, imp, pref, nonmon, fresh)
-
-
-@dataclass(frozen=True)
-class ScenarioKey:
-    P: int  # number_of_players
-    T: int  # conversation_length
-    M: int  # memory_bank size
-    S: int  # subject count (use len(snapshot.preferences))
-
-    def as_tuple(self) -> Tuple[int, int, int, int]:
-        return (self.P, self.T, self.M, self.S)
-
-
-def _clamp_norm(w: Iterable[float],
-                lo: float = 0.05,
-                hi: float = 0.60) -> WeightTuple:
-    """Clamp each component to [lo, hi], then renormalize to sum=1."""
-    ws = [max(lo, min(hi, float(x))) for x in w]
-    s = sum(ws)
+# ---------------------------
+# Utilities
+# ---------------------------
+def _clamp_norm(ws: Iterable[float]) -> Tuple[float, ...]:
+    w = [max(0.0, min(1.0, float(x))) for x in ws]
+    s = sum(w)
     if s <= 0:
-        # fallback to uniform if all got clamped to zeros somehow
-        return (0.2, 0.2, 0.2, 0.2, 0.2)
-    ws = [x / s for x in ws]
-    # Ensure exact 5-tuple
-    return (ws[0], ws[1], ws[2], ws[3], ws[4])  # type: ignore[return-value]
+        return (0.3, 0.3, 0.2, 0.1, 0.1)
+    return tuple(x / s for x in w)
 
+def _heuristic_weights(P: int, T: int, M: int, S: int) -> Tuple[float, ...]:
+    print("Using Heuristics")
+    # Simple, safe fallback mirroring your earlier logic
+    w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.40, 0.30, 0.20, 0.10, 0.00
+    if T <= 12:
+        w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.30, 0.45, 0.20, 0.05, 0.00
+    elif T >= 31:
+        w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.50, 0.20, 0.15, 0.15, 0.00
+    if P <= 3:
+        w_coh += 0.05; w_imp -= 0.05
+    elif P >= 6:
+        w_coh -= 0.10; w_imp += 0.10; w_pref = max(w_pref - 0.05, 0.10)
+    if M <= 8:
+        w_coh += 0.05; w_imp -= 0.05
+    elif M >= 16:
+        w_imp += 0.05; w_coh -= 0.05
+    w = _clamp_norm((w_coh, w_imp, w_pref, w_nonmon, w_fresh))
+    if T <= 12 and w[2] > 0.18:
+        w = _clamp_norm((w[0], w[1], 0.18, w[3], w[4]))
+    elif T >= 31 and w[2] > 0.15:
+        w = _clamp_norm((w[0], w[1], 0.15, w[3], w[4]))
+    return w
 
-def _heuristic_weights(P: int, T: int, M: int, S: int) -> WeightTuple:
-    """
-    Smooth, context-driven fallback that only relies on (P,T,M,S).
-    Intuition:
-      - Longer T -> more coherence & some nonmon; reduce freshness.
-      - More players P -> more freshness & a bit more nonmon; trim coherence & pref slightly.
-      - Larger memory M -> modest boost to coherence/importance; trim freshness/nonmon slightly.
-      - Larger S -> don't let preference explode in large subject spaces.
-    """
-    # Normalize length factor to [0,1] over a reasonable range
-    T_min, T_max = 8.0, 32.0
-    L = max(0.0, min(1.0, (T - T_min) / (T_max - T_min)))
+def _heuristic_mix_ab(P: int, T: int, M: int, S: int) -> Tuple[float, float]:
+    # Favor feature-weighted score by default; normalize to a+b=1
+    a, b = 0.90, 0.10
+    s = a + b
+    return (a / s, b / s)
 
-    # Base trend by T
-    w_coh = 0.20 + 0.20 * L       # 0.20 → 0.40
-    w_imp = 0.30 - 0.05 * L       # 0.30 → 0.25
-    w_pref = 0.22 - 0.05 * L      # 0.22 → 0.17
-    w_nonm = 0.08 + 0.07 * L      # 0.08 → 0.15
-    w_fre = 0.20 - 0.17 * L       # 0.20 → 0.03
+@dataclass
+class Scenario:
+    P: int; T: int; M: int; S: int
 
-    # Player-count factor in [0,1] over 3..8 players
-    P_min, P_max = 3.0, 8.0
-    F = max(0.0, min(1.0, (P - P_min) / (P_max - P_min)))
+def _scenario_key(P: int, T: int, M: int, S: int) -> Tuple[int, int, int, int]:
+    return (int(P), int(T), int(M), int(S))
 
-    # More players -> increase freshness/nonmon, reduce coherence/pref
-    w_fre += 0.12 * F
-    w_nonm += 0.04 * F
-    w_coh -= 0.10 * F
-    w_pref -= 0.06 * F
-
-    # Memory factor (more memory -> more coherence/importance)
-    M_min, M_max = 4.0, 20.0
-    MU = max(0.0, min(1.0, (M - M_min) / (M_max - M_min)))
-    w_coh += 0.08 * MU
-    w_imp += 0.04 * MU
-    w_fre -= 0.06 * MU
-    w_nonm -= 0.03 * MU
-
-    # Subject-space proxy to temper pref in huge S
-    # (larger S -> slightly reduce pref; smaller S -> allow a bit more)
-    S_min, S_max = 4.0, 12.0
-    SG = max(0.0, min(1.0, (S - S_min) / (S_max - S_min)))
-    w_pref -= 0.05 * SG
-
-    return _clamp_norm((w_coh, w_imp, w_pref, w_nonm, w_fre))
-
-
-def _load_oracle(path: str) -> Dict[str, Any]:
+def _load_index(path: str) -> Dict[str, Any]:
     if not path or not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _collect_stats(entries: List[Dict[str, Any]]) -> Dict[str, Tuple[float, float]]:
+    import statistics as st
+    Ps = [e["P"] for e in entries] or [1]
+    Ts = [e["T"] for e in entries] or [1]
+    Ms = [e["M"] for e in entries] or [1]
+    Ss = [e["S"] for e in entries] or [1]
+    def ms(x): return (st.fmean(x), (st.pstdev(x) if len(x) > 1 else 1.0))
+    return {"P": ms(Ps), "T": ms(Ts), "M": ms(Ms), "S": ms(Ss)}
+
+def _zscore_distance(a: Scenario, b: Scenario, stats: Dict[str, Tuple[float, float]]) -> float:
+    tot = 0.0
+    for dim, va, vb in (("P", a.P, b.P), ("T", a.T, b.T), ("M", a.M, b.M), ("S", a.S, b.S)):
+        mu, sd = stats.get(dim, (0.0, 1.0))
+        d = 0.0 if sd <= 0 else abs((va - mu) / sd - (vb - mu) / sd)
+        tot += d * d
+    return math.sqrt(tot)
+
+def _blend(vs: List[Tuple[float, ...]], ws: List[float]) -> Tuple[float, ...]:
+    out = [0.0] * len(vs[0])
+    for vec, w in zip(vs, ws):
+        for i, x in enumerate(vec):
+            out[i] += w * x
+    return tuple(out)
 
 
-def _parse_index(oracle: Dict[str, Any]) -> List[Dict[str, Any]]:
-    idx = oracle.get("index", [])
-    # Ensure minimal schema
-    good = []
-    for row in idx:
-        if all(k in row for k in ("P", "T", "M", "S", "best")) and "weights" in row["best"]:
-            good.append(row)
-    return good
+# Public Method
 
-
-def _zscore_stats(rows: List[Dict[str, Any]]) -> Tuple[Tuple[float, float, float, float],
-                                                       Tuple[float, float, float, float]]:
-    """Return per-dimension (mean, std) for (P,T,M,S)."""
-    if not rows:
-        return (0, 0, 0, 0), (1, 1, 1, 1)
-    Ps = [float(r["P"]) for r in rows]
-    Ts = [float(r["T"]) for r in rows]
-    Ms = [float(r["M"]) for r in rows]
-    Ss = [float(r["S"]) for r in rows]
-
-    def mean_std(xs: List[float]) -> Tuple[float, float]:
-        if not xs:
-            return (0.0, 1.0)
-        m = sum(xs) / len(xs)
-        v = sum((x - m) ** 2 for x in xs) / max(1, (len(xs) - 1))
-        return (m, math.sqrt(v) if v > 0 else 1.0)
-
-    mu = (mean_std(Ps)[0], mean_std(Ts)[0], mean_std(Ms)[0], mean_std(Ss)[0])
-    sd = (mean_std(Ps)[1], mean_std(Ts)[1], mean_std(Ms)[1], mean_std(Ss)[1])
-    return mu, sd
-
-
-def _zdist(a: ScenarioKey, b: ScenarioKey,
-           mu: Tuple[float, float, float, float],
-           sd: Tuple[float, float, float, float]) -> float:
-    ap, at, am, as_ = map(float, a.as_tuple())
-    bp, bt, bm, bs = map(float, b.as_tuple())
-    zp = (ap - mu[0]) / sd[0]
-    zt = (at - mu[1]) / sd[1]
-    zm = (am - mu[2]) / sd[2]
-    zs = (as_ - mu[3]) / sd[3]
-    zbp = (bp - mu[0]) / sd[0]
-    zbt = (bt - mu[1]) / sd[1]
-    zbm = (bm - mu[2]) / sd[2]
-    zbs = (bs - mu[3]) / sd[3]
-    return math.sqrt((zp - zbp) ** 2 + (zt - zbt) ** 2 + (zm - zbm) ** 2 + (zs - zbs) ** 2)
-
-
-def _nearest_neighbors(rows: List[Dict[str, Any]], key: ScenarioKey, k: int = 3) -> List[Dict[str, Any]]:
-    if not rows:
-        return []
-    mu, sd = _zscore_stats(rows)
-    rows_scored = [
-        (row, _zdist(key, ScenarioKey(row["P"], row["T"], row["M"], row["S"]), mu, sd))
-        for row in rows
-    ]
-    rows_scored.sort(key=lambda t: t[1])
-    return [r for r, _ in rows_scored[:max(1, k)]]
-
-
-def _blend_weights(ws: List[WeightTuple], dists: List[float]) -> WeightTuple:
+def compute_initial_weights(
+    ctx,
+    snapshot,
+    *,
+    oracle_path: Optional[str] = None,
+    alpha: float = 0.7,
+    nn_k: int = 3,
+) -> Tuple[float, float, float, float, float, float, float]:
     """
-    Distance-weighted average (inverse distance). If any distance is 0, return that weight directly.
-    """
-    for w, d in zip(ws, dists):
-        if d <= 1e-9:
-            return w
-    inv = [1.0 / max(d, 1e-9) for d in dists]
-    s = sum(inv)
-    coeffs = [x / s for x in inv]
-    blended = [0.0] * 5
-    for c, w in zip(coeffs, ws):
-        for i in range(5):
-            blended[i] += c * w[i]
-    return _clamp_norm(blended)
-
-
-def compute_initial_weights(ctx, snapshot,
-                            *,
-                            oracle_path: Optional[str] = None,
-                            alpha: float = 0.7,
-                            nn_k: int = 3) -> WeightTuple:
-    """
-    Main entry point called by Player1.__init__.
-    Tries oracle lookup (exact or nearest) at players/player_1/data/..., else falls back to heuristic.
+    Returns (w_coh, w_imp, w_pref, w_nonmon, w_fresh, a_weighted, b_raw),
+    reading 'weights' and 'mix_ab' from the index file; falls back to heuristics.
     """
     P = int(getattr(ctx, "number_of_players", 0))
     T = int(getattr(ctx, "conversation_length", 0))
     M = int(len(getattr(snapshot, "memory_bank", []) or []))
     S = int(len(getattr(snapshot, "preferences", []) or []))
-    key = ScenarioKey(P, T, M, S)
+    here = Scenario(P, T, M, S)
 
-    # 1) Try oracle JSON
-    path = oracle_path or DEFAULT_ORACLE_PATH
-    oracle = _load_oracle(path)
-    rows = _parse_index(oracle)
-    if rows:
-        # Exact match first
-        for r in rows:
-            if (r["P"], r["T"], r["M"], r["S"]) == key.as_tuple():
-                bw = r["best"]["weights"]
-                return _clamp_norm((bw[0], bw[1], bw[2], bw[3], bw[4]))
+    path = oracle_path or os.getenv("WEIGHTS_ORACLE_PATH", DEFAULT_ORACLE_PATH)
+    data = _load_index(path)
+    entries: List[Dict[str, Any]] = list(data.get("index", []))
 
-        # Nearest-neighbor fallback (blend top-k)
-        mu, sd = _zscore_stats(rows)
-        nn = _nearest_neighbors(rows, key, k=max(1, nn_k))
-        dists = [
-            _zdist(key, ScenarioKey(r["P"], r["T"], r["M"], r["S"]), mu, sd)
-            for r in nn
-        ]
-        wlist = [tuple(r["best"]["weights"]) for r in nn]  # type: ignore[assignment]
-        return _blend_weights(wlist, dists)
+    # Exact match
+    for e in entries:
+        if (e.get("P"), e.get("T"), e.get("M"), e.get("S")) == _scenario_key(P, T, M, S):
+            w = tuple(e.get("best", {}).get("weights", [])) or _heuristic_weights(P, T, M, S)
+            w = _clamp_norm(w)
+            mix = tuple(e.get("best", {}).get("mix_ab", [])) or _heuristic_mix_ab(P, T, M, S)
+            if len(mix) != 2:
+                mix = _heuristic_mix_ab(P, T, M, S)
+            a, b = mix
+            s = max(1e-9, a + b)
+            print("Found Weights")
+            return (*w, a / s, b / s)
 
-    # 2) No oracle → heuristic
-    return _heuristic_weights(P, T, M, S)
+    # Nearest neighbors (z-score space)
+    if entries:
+        stats = _collect_stats(entries)
+        cand = []
+        for e in entries:
+            there = Scenario(int(e["P"]), int(e["T"]), int(e["M"]), int(e["S"]))
+            d = _zscore_distance(here, there, stats)
+            cand.append((d, e))
+        cand.sort(key=lambda t: t[0])
+        top = cand[: max(1, int(nn_k))]
+
+        inv = [1.0 / (d + 1e-9) for d, _ in top]
+        s = sum(inv)
+        ws_norm = [x / s for x in inv]
+
+        W_vecs, M_vecs = [], []
+        for _, e in top:
+            w = tuple(e.get("best", {}).get("weights", [])) or _heuristic_weights(P, T, M, S)
+            W_vecs.append(_clamp_norm(w))
+            mix = tuple(e.get("best", {}).get("mix_ab", [])) or _heuristic_mix_ab(P, T, M, S)
+            if len(mix) != 2:
+                mix = _heuristic_mix_ab(P, T, M, S)
+            a, b = mix
+            t = max(1e-9, a + b)
+            M_vecs.append((a / t, b / t))
+
+        W = _blend(W_vecs, ws_norm)
+        A, B = _blend(M_vecs, ws_norm)
+        s2 = max(1e-9, A + B)
+        print("Computing K Nearest Neighbors")
+        return (*_clamp_norm(W), A / s2, B / s2)
+
+    # Nothing on disk → heuristics
+    W = _heuristic_weights(P, T, M, S)
+    a, b = _heuristic_mix_ab(P, T, M, S)
+    s3 = max(1e-9, a + b)
+    return (*W, a / s3, b / s3)

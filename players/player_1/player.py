@@ -18,12 +18,12 @@ class Player1(Player):
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
 		# inside Player1.__init__
-		self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = compute_initial_weights(
-		ctx,
-		snapshot,
-		oracle_path=os.getenv("WEIGHTS_ORACLE_PATH", "players/player_1/data/weights_oracle_index.json"),
-		alpha=0.7,   # tune to your objective blend
-		nn_k=3,      # nearest-neighbor blend if no exact scenario
+		(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh, self.weighted, self.raw) = compute_initial_weights(
+			ctx,
+			snapshot,
+			oracle_path=os.getenv("WEIGHTS_ORACLE_PATH", "players/player_1/data/weights_oracle_index.json"),
+			alpha=0.7,
+			nn_k=3,
 		)
 
 		print(f"Initial Weights: Coherence={self.w_coh:.3f}, Importance={self.w_imp:.3f}, Preference={self.w_pref:.3f}, Nonmonotonousness={self.w_nonmon:.3f}, Freshness={self.w_fresh:.3f}")
@@ -38,9 +38,9 @@ class Player1(Player):
 		# print('\nConversation History: ', history)
 
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
-		if len(history) == 0:
-			memory_bank_imp = importance_sort(self.memory_bank)
-			return memory_bank_imp[0] if memory_bank_imp else None
+		# if len(history) == 0:
+		# 	memory_bank_imp = importance_sort(self.memory_bank)
+		# 	return memory_bank_imp[0] if memory_bank_imp else None
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
 		self._update_used_items(history)
@@ -71,7 +71,7 @@ class Player1(Player):
 		score_sources = {"coherence": coherence_scores, "importance": importance_scores, "preference": preference_scores, "nonmonotonousness": nonmonotonousness_scores, "freshness": freshness_scores}
 
 		# Checking for if it is a pause turn for the weighting system
-		if history[-1] is None:  # Last move was a pause
+		if len(history) !=0 and history[-1] is None:  # Last move was a pause
 			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
 			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
 				0.0,
@@ -82,6 +82,8 @@ class Player1(Player):
 			)
 
 		best_item, best_now, weighted_scores = choose_item(
+			self.weighted,
+			self.raw,
 			filtered_memory_bank,
 			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
@@ -94,11 +96,8 @@ class Player1(Player):
 
 		# Decide to pause or speak
 		if should_pause(
-			weighted_scores,
 			history,
-			self.ctx.conversation_length,
-			best_now,
-			self.ctx.number_of_players,
+			best_item
 		):
 			# print('Decided to Pause')
 			return None  # pause
@@ -110,81 +109,6 @@ class Player1(Player):
 		# if the item is None, it should not be added to the used_items set
 
 		self.used_items.update(item.id for item in history if item is not None)
-
-	def _init_dynamic_weights(
-		self, ctx: GameContext, snapshot: PlayerSnapshot
-	) -> tuple[float, float, float]:
-		P = ctx.number_of_players
-		L = ctx.conversation_length
-		B = len(snapshot.memory_bank)
-
-		# Base Weights
-		w_coh, w_imp, w_pref, w_nonmon, w_fresh = (0.324405, 0.31929, 0.154073, 0.13617, 0.066061)
-
-		# Length of Conversation
-		if L <= 15:
-			# short: focus importance
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.3, 0.45, 0.2, 0.05, 0.0
-		elif L >= 31:
-			# long: focus coherence even more strongly
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.5, 0.2, 0.15, 0.15, 0.0
-
-		# Player Size
-		if P <= 3:
-			# small: More control, nudge coherence
-			w_coh += 0.05
-			w_imp -= 0.05
-		elif P >= 6:
-			# large: Less control, bank importance more heavily and cut preference
-			w_coh -= 0.1
-			w_imp += 0.1
-			w_pref = max(w_pref - 0.05, 0.1)
-
-		# Inventory Length
-		if B <= 8:
-			# conservative, focus coherence
-			w_coh += 0.05
-			w_imp -= 0.05
-		elif B >= 16:
-			# Less Conservative, focus importance
-			w_imp += 0.05
-			w_coh -= 0.05
-
-		# clamp to [0,1] and softly renormalize to keep sum≈1
-		w_coh = max(0.0, min(1.0, w_coh))
-		w_imp = max(0.0, min(1.0, w_imp))
-		w_pref = max(0.0, min(1.0, w_pref))
-		w_nonmon = max(0.0, min(1.0, w_nonmon))
-		w_fresh = max(0.0, min(1.0, w_fresh))
-
-		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
-		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
-				w_coh / total,
-				w_imp / total,
-				w_pref / total,
-				w_nonmon / total,
-				w_fresh / total,
-			)
-
-		# Cap preference weight depending on conversation length
-		if L <= 12 and w_pref > 0.18:
-			w_pref = 0.18
-		elif L >= 31 and w_pref > 0.15:
-			w_pref = 0.15
-
-		# Renormalize after capping preference
-		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
-		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
-				w_coh / total,
-				w_imp / total,
-				w_pref / total,
-				w_nonmon / total,
-				w_fresh / total,
-			)
-
-		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
 
 
 # Helper Functions #
@@ -361,6 +285,8 @@ def calculate_weighted_score(
 
 
 def choose_item(
+	weighted: float,
+	raw: float,
 	memory_bank: list[Item],
 	score_sources: dict[str, dict[UUID, tuple[float, float]]],
 	weights: tuple[float, float, float, float, float],
@@ -388,10 +314,8 @@ def choose_item(
 		for item in memory_bank
 	}
 
-	a = 1
-	b = 0
 
-	final_scores = {item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id] for item in memory_bank}
+	final_scores = {item.id: weighted * total_weighted_scores[item.id] + raw * total_raw_scores[item.id] for item in memory_bank}
 
 	if not final_scores:
 		return None
@@ -426,63 +350,104 @@ def count_consecutive_pauses(history: list[Item]) -> int:
 	return cnt
 
 
+def _engine_like_turn_impact(history: list[Item], item: Item) -> float:
+	"""
+	total = importance + coherence + freshness + nonmonotonousness
+
+	We evaluate as-if item were placed at the next index (i = len(history)).
+	"""
+	if item is None:
+		return 0.0
+
+	i = len(history)  # proposed index of this new turn
+
+	# Repetition check across prior history (strict identity by id)
+	is_repeated = any(h and h.id == item.id for h in history)
+
+	# --- Importance ---
+	if is_repeated:
+		importance = 0.0
+	else:
+		importance = float(getattr(item, "importance", 0.0))
+
+	# Coherence (look back up to 3 until a pause is hit)
+	context_items: list[Item] = []
+	for j in range(i - 1, max(-1, i - 4), -1):
+		if j < 0:
+			break
+		if history[j] is None:
+			break
+		context_items.append(history[j])
+
+	context_subject_counts = Counter(
+		s for it in context_items for s in (it.subjects if it else [])
+	)
+	coherence = 0.0
+	# If any subject of current item is missing from context, -1
+	if not all(s in context_subject_counts for s in item.subjects):
+		coherence -= 1.0
+	# If all subjects appear at least twice in context, +1
+	if item.subjects and all(context_subject_counts.get(s, 0) >= 2 for s in item.subjects):
+		coherence += 1.0
+
+	# Freshness (only if previous turn was a pause)
+	# Otherwise count novel subjects vs. prior 5 non-None items before the pause.
+	if i == 0 or (i > 0 and history[i - 1] is not None):
+		freshness = 0.0
+	else:
+		start = max(0, i - 6)
+		prior_items = (h for h in history[start : i - 1] if h is not None)
+		prior_subjects = {s for it in prior_items for s in it.subjects}
+		novel = [s for s in item.subjects if s not in prior_subjects]
+		freshness = float(len(novel))
+
+	# Nonmonotonousness (penalize runs of same-subject in last 3)
+	# Engine: if repeated item id then -1.0
+	#         elif i < 3 then 0.0
+	#         elif all of last 3 items exist and each shares ANY subject with current -> -1.0
+	if is_repeated:
+		nonmono = -1.0
+	elif i < 3:
+		nonmono = 0.0
+	else:
+		last_three = history[max(0, i - 3) : i]
+		if last_three and all(
+			(h is not None) and any(s in h.subjects for s in item.subjects)
+			for h in last_three
+		):
+			nonmono = -1.0
+		else:
+			nonmono = 0.0
+
+	# Total (matches engine: excludes any 'individual' bonus)
+	total = importance + coherence + freshness + nonmono
+	return float(total)
+
+
 def should_pause(
-	weighted_scores: dict[UUID, float],
 	history: list[Item],
-	conversation_length: int,
-	best_now: float,
-	number_of_players: int,
+	best_item: Item,  # <-- add this parameter
 ) -> bool:
 	"""
-	Compute a dynamic threshold for speaking.
-	Return True if we should pause (i.e., best_now < threshold).
+	Pause iff playing our best item would NOT have a positive turn impact.
+
+	We simulate the engine scoring with engine_like_turn_impact.
+	If total > 0 then speak (return False). Otherwise then pause (return True).
+
+	Safety: if we've already paused twice consecutively, lower threshold.
 	"""
-	# Set a base threshold by conversation length
-	# Short games: lower ceilings on weighted scores = lower threshold.
-	# Long games: higher ceilings = higher threshold.
+	# Simulate engine total for the candidate we'd play
+	total = _engine_like_turn_impact(history, best_item)
 
-	# REDO THIS TO MAYBE DECIDE A STARTING THRESHOLD BASED ON THE AVG WEIGHTED SCORES
-	threshold = base_threshold(weighted_scores)
+	# Positive impact → speak
+	if total > 0.0:
+		return False
 
-	# Check and see the last two moves were pauses for risk of termination
+	# Avoid immediate termination from 3 consecutive pauses:
 	cons_pauses = count_consecutive_pauses(history)
-	# print(f'Consecutive Pauses: {cons_pauses}')
 	if cons_pauses >= 2:
-		# Pausing risks immediate termination; lower threshold so we prefer to speak
-		threshold -= 0.30
-	elif cons_pauses == 1:
-		threshold -= 0.15
+		# if we're only barely non-positive, speak
+		return total <= -0.05
 
-	# See the number of turns left; fewer turns left means we should lower threshold and speak more
-	turns_so_far = sum(1 for it in history if it is not None or it is None)  # history length
-	turns_left = max(0, conversation_length - turns_so_far)
-	# print(f'Turns Left: {turns_left}')
-	if turns_left <= 3:
-		threshold -= 0.10
-	elif turns_left <= 6:
-		threshold -= 0.05
-
-	# THIS MIGHT NEEd TWEAKED IM NOT TOO SURE ABOUT IT
-	if number_of_players >= 6:
-		threshold -= 0.05
-	elif number_of_players <= 3:
-		threshold += 0.05
-
-	# ensure threshold is within reasonable bounds
-	threshold = max(0.35, min(0.90, threshold))
-	# print(
-	# 	f'Pause Decision: best_now={best_now:.3f} vs threshold={threshold:.3f} (cons_pauses={cons_pauses}, turns_left={turns_left}'
-	# )
-	return best_now < threshold
-
-
-def base_threshold(weighted_scores) -> float:
-	"""
-	Set the *base* speak/pause threshold as the average of the top 3 weighted scores.
-	"""
-	if not weighted_scores:
-		return 0.5  # Default threshold if no scores are available
-
-	top_scores = sorted(weighted_scores.values(), reverse=True)[:3]
-	average_score = sum(top_scores) / len(top_scores)
-	return average_score
+	# Non-positive → pause
+	return True
