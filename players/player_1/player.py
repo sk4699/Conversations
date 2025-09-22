@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from uuid import UUID
 
 from models.player import GameContext, Item, Player, PlayerSnapshot
@@ -20,13 +20,30 @@ class Player1(Player):
 			self._init_dynamic_weights(ctx, snapshot)
 		)
 		self.ctx = ctx
+
+		#  track information about other players
+
+		self.player_subjects = defaultdict(Counter)
+		self.player_actions = defaultdict(list)
+		self.player_turns = Counter()
+		self.player_pause_count = Counter()
+		self.player_coherence_contributions = defaultdict(float)
+		self.player_coherence_fraction = defaultdict(float)
+
 		# Print Player 1 ID and wait for input
 		# print(f"Player 1 ID: {self.id}")
 		# input("Press Enter to continue...")
 
 	def propose_item(self, history: list[Item]) -> Item | None:
-		# print('\nCurrent Memory Bank: ', self.memory_bank)
+		print('\nCurrent Memory Bank: ', self.memory_bank)
 		# print('\nConversation History: ', history)
+
+		#  update metadata
+		new_items = self.get_items_since_my_last_turn(history)
+
+		for item in new_items:
+			print("WHAT HAPPENED SINCE LAST TURN: ", item)
+			self.update_player_data(item.player_id, item, history)
 
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
 		if len(history) == 0:
@@ -45,7 +62,7 @@ class Player1(Player):
 			return memory_bank_imp[0] if memory_bank_imp else None
 
 		coherence_scores = {
-			item.id: coherence_check(item, history) for item in filtered_memory_bank
+			item.id: self.score_coherence(item, history, filtered_memory_bank) for item in filtered_memory_bank
 		}
 		importance_scores = {
 			item.id: (item.importance, item.importance) for item in filtered_memory_bank
@@ -70,21 +87,33 @@ class Player1(Player):
 		}
 
 		# Checking for if it is a pause turn for the weighting system
-		if history[-1] is None:  # Last move was a pause
-			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
-			self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh = (
-				0.0,
-				0.1,
-				0.1,
-				0.0,
-				0.8,
-			)
+		weighted_score_weight = 0.65
+		raw_score_weight = 0.35
 
 		best_item, best_now, weighted_scores = choose_item(
 			filtered_memory_bank,
 			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
+			weighted_score_weight=weighted_score_weight,
+			raw_score_weight=raw_score_weight
 		)
+
+		print("\n🧠 Candidate Items Scoring Summary:")
+		for item in filtered_memory_bank:
+			item_id = item.id
+			print(f"\n📌 Item: {item.id}")  # Show a preview of item content
+			print(f"  - Coherence: raw={coherence_scores[item_id][0]:.2f}, scaled={coherence_scores[item_id][1]:.2f}")
+			print(f"  - Importance: raw={importance_scores[item_id][0]:.2f}, scaled={importance_scores[item_id][1]:.2f}")
+			print(f"  - Preference: raw={preference_scores[item_id][0]:.2f}, scaled={preference_scores[item_id][1]:.2f}")
+			print(f"  - Nonmonotonousness: raw={nonmonotonousness_scores[item_id][0]:.2f}, scaled={nonmonotonousness_scores[item_id][1]:.2f}")
+			print(f"  - Freshness: raw={freshness_scores[item_id][0]:.2f}, scaled={freshness_scores[item_id][1]:.2f}")
+			print(f"  → Weighted Score: {weighted_scores[item_id]:.3f}")
+
+		print("\n✅ Selected Item for Proposal:")
+		print(f"📌 Content: {best_item.id}...")
+		print(f"🎯 Final Weighted Score: {best_now:.3f}")
+		print(f"📊 Weights → Coherence: {self.w_coh:.2f}, Importance: {self.w_imp:.2f}, Preference: {self.w_pref:.2f}, Non-Monotonous: {self.w_nonmon:.2f}, Freshness: {self.w_fresh:.2f}")
+
 
 		if best_item is None:
 			return None
@@ -110,9 +139,126 @@ class Player1(Player):
 
 		self.used_items.update(item.id for item in history if item is not None)
 
+	def score_coherence(self, current_item: Item, history: list[Item], filtered_memory_bank) -> float:
+		if current_item is None:
+			print("\nCoherence: Current item is None → Score = 0.0")
+			return 0.0, 0.0
+
+		recent_history = []
+		start_idx = max(0, len(history) - 3)
+		for i in range(len(history) - 1, start_idx - 1, -1):
+			item = history[i]
+			if item is None:
+				break
+			recent_history.append(item)
+
+		subject_count = Counter()
+		for item in recent_history:
+			subject_count.update(item.subjects)
+
+		subjects = current_item.subjects
+		counts = [subject_count.get(s, 0) for s in subjects]
+
+		raw_score, scaled_score = 0.0, 0.0
+
+		print(f"\nScoring Coherence for Item: {current_item.id}")
+		print(f"Subjects: {subjects}")
+		print(f"Recent Subject Counts: {dict(subject_count)}")
+		print(f"Counts per Subject: {counts}")
+
+		if any(c == 0 for c in counts):
+			raw_score = -1.0
+			scaled_score = 0.0
+			print("Result: At least one subject not seen → Penalty (Raw = -1.0, Scaled = 0.0)")
+
+		elif all(c >= 2 for c in counts):
+			raw_score = 1.0
+			scaled_score = 1.0
+			print("Result: All subjects seen ≥ 2 times → Full Reward (Raw = 1.0, Scaled = 1.0)")
+
+		elif all(c == 1 for c in counts):
+			print("LIkely next players: ", self.get_likely_next_players())
+			next_probs = self.get_next_player_probability(self.get_likely_next_players())
+			self_prob = next_probs.get(self.id, 0.0)
+			self_coherence_bonus = 0.0
+
+			for subj in subjects:
+				if any(subj in item.subjects and item.id != current_item.id for item in filtered_memory_bank):
+					self_coherence_bonus = self_prob * 0.5
+					break
+
+			top_subjects_with_fractions = self.get_top_subject_preferences(top_n=3)
+			print("Top subjects per player: ", top_subjects_with_fractions)
+			expected_followup_bonus = 0.0
+
+			for pid, prob in next_probs.items():
+				if pid == self.id or pid not in top_subjects_with_fractions:
+					continue
+				subj_frac_map = top_subjects_with_fractions[pid]
+				for subj in subjects:
+					expected_followup_bonus += prob * subj_frac_map.get(subj, 0.0)
+
+			expected_coherence_fraction_bonus = 0.0
+			for pid, prob in next_probs.items():
+				if pid == self.id:
+					continue
+				coh_frac = self.player_coherence_fraction.get(pid, 0.0)
+				print("Player's coherence fraction: ", coh_frac)
+				expected_coherence_fraction_bonus += prob * coh_frac
+
+			expected_coherence_fraction_bonus = min(expected_coherence_fraction_bonus, 1.0) * 0.5
+
+			total_expected_reward = expected_followup_bonus + self_coherence_bonus + expected_coherence_fraction_bonus
+			raw_score = 0.5
+			scaled_score = min(total_expected_reward, 1.0)
+
+			print("Partial Coherence Case:")
+			print(f"  At least one subject seen once")
+			print(f"  Expected follow-up reward from others: {expected_followup_bonus:.2f}")
+			print(f"  Self follow-up potential (based on self_prob and memory): {self_coherence_bonus:.2f}")
+			print(f"  Result: Anticipating coherence thread may be completed (Raw = {raw_score:.2f}, Scaled = {scaled_score:.2f})")
+
+		return raw_score, scaled_score
+	
+
+	def item_scored_full_coherence(self, item: Item, history: list[Item], index: int) -> bool:
+		if item is None:
+			return False
+
+		context_items = []
+
+		back_count = 0
+		i = index - 1
+		while i >= 0 and back_count < 3:
+			if history[i] is None:
+				break
+			context_items.append(history[i])
+			back_count += 1
+			i -= 1
+
+		forward_count = 0
+		i = index + 1
+		while i < len(history) and forward_count < 3:
+			if history[i] is None:
+				break
+			context_items.append(history[i])
+			forward_count += 1
+			i += 1
+
+		subject_counter = Counter()
+		for it in context_items:
+			subject_counter.update(it.subjects)
+
+		got_point = all(subject_counter.get(s, 0) >= 2 for s in item.subjects)
+
+		if got_point:
+			return True
+		return False
+
+
 	def _init_dynamic_weights(
 		self, ctx: GameContext, snapshot: PlayerSnapshot
-	) -> tuple[float, float, float]:
+	) -> tuple[float, float, float, float, float]:
 		P = ctx.number_of_players
 		L = ctx.conversation_length
 		B = len(snapshot.memory_bank)
@@ -184,7 +330,81 @@ class Player1(Player):
 			)
 
 		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
+	
 
+	def get_likely_next_players(self) -> list[UUID]:
+		if not self.player_turns:
+			return []
+
+		other_players = {player_id: count for player_id, count in self.player_turns.items()}
+		if not other_players:
+			return []
+
+		min_turns = min(other_players.values())
+		return [player_id for player_id, count in other_players.items() if count == min_turns]
+
+
+	def get_next_player_probability(self, player_ids):
+		likely_other_players_count = len(player_ids) - 1
+		other_likely_prob = 0.5 / likely_other_players_count if likely_other_players_count > 0 else 0.0
+
+		prob_dict = {player_id: other_likely_prob for player_id in player_ids if player_id != self.id}
+		prob_dict[self.id] = 0.5
+
+		if self.id in player_ids:
+			prob_dict[self.id] += other_likely_prob
+
+		return prob_dict
+
+
+	def get_top_subject_preferences(self, top_n=3):
+		top_subjects_per_player = {}
+
+		for player_id, subject_counter in self.player_subjects.items():
+			total_mentions = sum(subject_counter.values())
+
+			if total_mentions == 0:
+				top_subjects_per_player[player_id] = (set(), {})
+				continue
+
+			subj_fractions = {subject: count / total_mentions for subject, count in subject_counter.items()}
+			
+			top_subjects = sorted(subj_fractions, key=subj_fractions.get, reverse=True)[:top_n]
+			top_fractions = {subj: subj_fractions[subj] for subj in top_subjects}
+			
+			top_subjects_per_player[player_id] = top_fractions
+
+		return top_subjects_per_player
+
+
+	def get_items_since_my_last_turn(self, history: list[Item]):
+		for i in range(len(history) - 1, -1, -1):
+			if history[i] is not None and history[i].player_id == self.id:
+				return [item for item in history[i + 1:]]
+		return history
+
+
+	def update_player_data(self, player_id: UUID, item: Item | None, history):
+		self.player_turns[player_id] += 1
+		self.player_actions[player_id].append(item)
+
+		if item is None:
+			self.player_pause_count[player_id] += 1
+			return
+		
+		for subject in item.subjects:
+			self.player_subjects[player_id][subject] += 1
+
+		history = self.player_actions[player_id]
+		idx = len(history) - 1
+		if self.item_scored_full_coherence(item, history, idx):
+			self.player_coherence_contributions[player_id] += 1
+
+		total = len(self.player_actions)
+		coh_count = self.player_coherence_contributions.get(player_id, 0)
+
+		coherence_fraction = coh_count / total if total > 0 else 0
+		self.player_coherence_fraction[player_id] = coherence_fraction
 
 # Helper Functions #
 
@@ -213,53 +433,6 @@ def inventory_subjects(items: list[Item]) -> set[str]:
 def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Item]:
 	# Filter out items with IDs already in the used_items set
 	return [item for item in memory_bank if item.id not in used_items]
-
-
-def coherence_check(current_item: Item, history: list[Item]) -> float:
-	# Check the last 3 items in history (or fewer if history is shorter)
-	if current_item is None:
-		raw_score = 0.0
-		scaled_score = 0.0
-		return raw_score, scaled_score
-
-	recent_history = []
-	start_idx = max(0, len(history) - 3)
-
-	for i in range(len(history) - 1, start_idx - 1, -1):
-		item = history[i]
-		if item is None:
-			break
-		recent_history.append(item)
-
-	# Count occurrences of each subject in the recent history
-	subject_count = Counter()
-	for item in recent_history:  # won't be None
-		subject_count.update(item.subjects)
-
-	# See if all subjects in the current item are appear once or twice in the history
-	subjects = current_item.subjects
-	counts = [subject_count.get(s, 0) for s in subjects]
-	raw_score, scaled_score = 0.0, 0.0
-
-	if any(c == 0 for c in counts):
-		raw_score = -1.0
-		scaled_score = 0.0
-	elif all(c >= 2 for c in counts):
-		raw_score = 1.0
-		scaled_score = 1.0
-	elif all(c == 1 for c in counts):
-		raw_score = 0.5
-		scaled_score = 0.5
-	return raw_score, scaled_score
-
-	# Debugging prints
-	# print("\nCurrent Item Subjects:", current_item.subjects)
-	# print("History Length:", len(history))
-	# print("Recent History:", [item.subjects for item in recent_history])
-	# print("Subject Count:", subject_count)
-	# print("Coherence Score Before Normalization:", coherence_score)
-	# print("Coherence Score After Normalization:", coherence_score / len(current_item.subjects) if current_item.subjects else 0.0)
-	# print("Number of Subjects in Current Item:", len(current_item.subjects))
 
 
 def score_freshness(current_item: Item, history: list[Item]) -> float:
@@ -305,7 +478,7 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 		):
 			penalty -= 1
 
-	if current_item in history:
+	if current_item.id in {item.id for item in history}:
 		penalty -= 1
 
 	raw_score = penalty
@@ -320,7 +493,7 @@ def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
 	# Sort the memory bank based on coherence scores in descending order
 	# use a lambda on each item to check coherence score
 	sorted_memory = sorted(
-		memory_bank, key=lambda item: coherence_check(item, history), reverse=True
+		memory_bank, key=lambda item: Player1.score_coherence(item, history), reverse=True
 	)
 	return sorted_memory
 
@@ -365,6 +538,8 @@ def choose_item(
 	memory_bank: list[Item],
 	score_sources: dict[str, dict[UUID, tuple[float, float]]],
 	weights: tuple[float, float, float, float, float],
+	weighted_score_weight,
+	raw_score_weight
 ):
 	scaled_scores = {
 		'coherence': {},
@@ -389,11 +564,8 @@ def choose_item(
 		item.id: calculate_weighted_score(item.id, scaled_scores, weights) for item in memory_bank
 	}
 
-	a = 0.65
-	b = 0.35
-
 	final_scores = {
-		item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id]
+		item.id: weighted_score_weight * total_weighted_scores[item.id] + raw_score_weight * total_raw_scores[item.id]
 		for item in memory_bank
 	}
 
@@ -458,7 +630,7 @@ def should_pause(
 		threshold -= 0.15
 
 	# See the number of turns left; fewer turns left means we should lower threshold and speak more
-	turns_so_far = sum(1 for it in history if it is not None or it is None)  # history length
+	turns_so_far = len(history)  # history length
 	turns_left = max(0, conversation_length - turns_so_far)
 	# print(f'Turns Left: {turns_left}')
 	if turns_left <= 3:
@@ -490,3 +662,9 @@ def base_threshold(weighted_scores) -> float:
 	top_scores = sorted(weighted_scores.values(), reverse=True)[:3]
 	average_score = sum(top_scores) / len(top_scores)
 	return average_score
+
+
+#  see what categories of points the other players tend to win, in terms of raw score
+# if a player goes for coherence a lot, and the prev subject was from that player, then better to boost coherence
+# sabatoge other ppl's coherence
+# predict who'll speak next!
