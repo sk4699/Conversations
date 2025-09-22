@@ -61,9 +61,7 @@ class Player1(Player):
 		coherence_scores = {
 			item.id: coherence_check(item, history) for item in filtered_memory_bank
 		}
-		importance_scores = {
-			item.id: (item.importance, item.importance) for item in filtered_memory_bank
-		}
+		importance_scores = {item.id: (item.importance, item.importance) for item in filtered_memory_bank}
 		preference_scores = {
 			item.id: score_item_preference(item.subjects, self.subj_pref_ranking)
 			for item in filtered_memory_bank
@@ -286,7 +284,6 @@ class Player1(Player):
 
 # Helper Functions #
 
-
 def recent_subject_stats(history: list[Item], window: int = 6):
 	# Look back `window` turns (skipping None), return:
 	# - subj_counts: Counter of subjects in the window
@@ -296,7 +293,6 @@ def recent_subject_stats(history: list[Item], window: int = 6):
 	recent = [it for it in history[-window:] if it is not None]
 	subjects = [s for it in recent for s in it.subjects]
 	from collections import Counter
-
 	subj_counts = Counter(subjects)
 	top_freq = max(subj_counts.values()) if subj_counts else 0
 	unique = len(subj_counts)
@@ -304,7 +300,7 @@ def recent_subject_stats(history: list[Item], window: int = 6):
 
 
 def inventory_subjects(items: list[Item]) -> set[str]:
-	# All subjects still available to play from the filtered memory bank.
+    #All subjects still available to play from the filtered memory bank.
 	return {s for it in items for s in it.subjects}
 
 ##################################################
@@ -485,11 +481,11 @@ def calculate_weighted_score(
 ):
 	w1, w2, w3, w4, w5 = weights
 
-	coherence = scaled_scores['coherence'].get(item_id, 0.0)
-	importance = scaled_scores['importance'].get(item_id, 0.0)
-	preference = scaled_scores['preference'].get(item_id, 0.0)
-	nonmonotonousness = scaled_scores['nonmonotonousness'].get(item_id, 0.0)
-	freshness = scaled_scores['freshness'].get(item_id, 0.0)
+	coherence = scaled_scores["coherence"].get(item_id, 0.0)
+	importance = scaled_scores["importance"].get(item_id, 0.0)
+	preference = scaled_scores["preference"].get(item_id, 0.0)
+	nonmonotonousness = scaled_scores["nonmonotonousness"].get(item_id, 0.0)
+	freshness = scaled_scores["freshness"].get(item_id, 0.0)
 
 	return (
 		w1 * coherence + w2 * importance + w3 * preference + w4 * nonmonotonousness + w5 * freshness
@@ -524,14 +520,11 @@ def choose_item(
 		total_raw_scores[item_id] = raw_score_sum
 
 	total_weighted_scores = {
-		item.id: calculate_weighted_score(item.id, scaled_scores, weights) for item in memory_bank
-	}
-
-	a = 0.65
-	b = 0.35
-
-	final_scores = {
-		item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id]
+		item.id: calculate_weighted_score(
+			item.id,
+			scaled_scores,
+			weights
+		)
 		for item in memory_bank
 	}
 
