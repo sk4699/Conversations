@@ -225,10 +225,6 @@ class Player1(Player):
 # Helper Functions #
 
 
-##################################################
-#### Category: Scoring and Sorting Functions #####
-##################################################
-
 def recent_subject_stats(history: list[Item], window: int = 6):
 	# Look back `window` turns (skipping None), return:
 	# - subj_counts: Counter of subjects in the window
@@ -243,6 +239,11 @@ def recent_subject_stats(history: list[Item], window: int = 6):
 	top_freq = max(subj_counts.values()) if subj_counts else 0
 	unique = len(subj_counts)
 	return subj_counts, top_freq, unique, set(subjects)
+
+
+##################################################
+#### Category: Scoring and Sorting Functions #####
+##################################################
 
 
 def inventory_subjects(items: list[Item]) -> set[str]:
