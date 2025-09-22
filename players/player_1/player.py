@@ -511,7 +511,7 @@ def choose_item(
 		item_id = item.id
 		raw_score_sum = 0
 		for key in score_sources:
-			#Testing weights without importance raw score
+			#STATEMENT TO HAVE RAW SCORE = SHARED SCORE
 			if key != "preference":
 				raw_score_sum += score_sources[key][item_id][0]
 				scaled_scores[key][item_id] = score_sources[key][item_id][1]
@@ -536,13 +536,13 @@ def choose_item(
 
 	# If no final scores, return None
 	#print all final scores for debugging by uuid
-	for item_id, score in final_scores.items():
-		print(f"Item ID: {item_id} | Final Score: {score}")
+	#for item_id, score in final_scores.items():
+	#	print(f"Item ID: {item_id} | Final Score: {score}")
 
 	if not final_scores:
 		return None
 	#If the best score is less than .15, we should pause (THIS IS FOR SHARED SCORES)
-	elif max(final_scores.values()) < .5:
+	elif max(final_scores.values()) < 0.5:
 		print(f"*** We Didn't meet threshold: ", final_scores.values())
 		return None, 0.0, final_scores
 
