@@ -225,6 +225,10 @@ class Player1(Player):
 # Helper Functions #
 
 
+##################################################
+#### Category: Scoring and Sorting Functions #####
+##################################################
+
 def recent_subject_stats(history: list[Item], window: int = 6):
 	# Look back `window` turns (skipping None), return:
 	# - subj_counts: Counter of subjects in the window
@@ -244,11 +248,6 @@ def recent_subject_stats(history: list[Item], window: int = 6):
 def inventory_subjects(items: list[Item]) -> set[str]:
 	# All subjects still available to play from the filtered memory bank.
 	return {s for it in items for s in it.subjects}
-
-
-##################################################
-#### Category: Scoring and Sorting Functions #####
-##################################################
 
 
 def check_repetition(memory_bank: list[Item], used_items: set[UUID]) -> list[Item]:
