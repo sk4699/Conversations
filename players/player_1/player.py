@@ -13,6 +13,8 @@ class Player1(Player):
 		}
 
 		self.used_items: set[UUID] = set()
+		self.snapshot = snapshot
+		self.w_strength = 1.0  # Initial weight strength
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
@@ -26,7 +28,6 @@ class Player1(Player):
 		self.player_subjects = defaultdict(Counter)
 		self.player_actions = defaultdict(list)
 		self.player_turns = Counter()
-		self.player_pause_count = Counter()
 		self.player_coherence_contributions = defaultdict(float)
 		self.player_coherence_fraction = defaultdict(float)
 
@@ -46,21 +47,44 @@ class Player1(Player):
 			self.update_player_data(item_tup, history)  # must happen before updating used items
 
 		# If history length is 0, return the first item from preferred sort ( Has the highest Importance)
-		if len(history) == 0:
-			memory_bank_imp = importance_sort(self.memory_bank)
-			return memory_bank_imp[0] if memory_bank_imp else None
+		# if len(history) == 0:
+		# 	memory_bank_imp = importance_sort(self.memory_bank)
+		# 	# return memory_bank_imp[0] if memory_bank_imp else None
+
+		# If the last item in history is in our memory bank, we add it to our contributed items
+		if (
+			len(history) != 0
+			and history[-1] is not None
+			and history[-1] in self.memory_bank
+			and history[-1] not in self.contributed_items
+		):
+			self.contributed_items.append(history[-1])
 
 		# This Checks Repitition so we dont repeat any item that has already been said in the history, returns a filtered memory bank
 		self._update_used_items(history)
+
 		filtered_memory_bank = check_repetition(self.memory_bank, self.used_items)
 		# print('\nCurrent Memory Bank: ', len(self.memory_bank))
 		# print('\nFiltered Memory Bank: ', len(filtered_memory_bank))
 
 		# Return None if there are no valid items to propose
 		if len(filtered_memory_bank) == 0:
-			memory_bank_imp = importance_sort(self.memory_bank)
-			return memory_bank_imp[0] if memory_bank_imp else None
+			return None
 
+		# Dynamically adjust weights based on game context and recent history
+		(
+			self.w_coh,
+			self.w_imp,
+			self.w_pref,
+			self.w_nonmon,
+			self.w_fresh,
+			is_fresh_turn,
+			is_monotonous_turn,
+		) = self.dynamic_adjustment(history, self.ctx, self.snapshot)
+
+		# print("fresh turn: ", is_fresh_turn, "monotonous turn: ", is_monotonous_turn)
+
+		# SCORE CALCULATIONS FOR EACH ITEM
 		coherence_scores = {
 			item.id: score_coherence(self, item, history, filtered_memory_bank) for item in filtered_memory_bank
 		}
@@ -86,33 +110,30 @@ class Player1(Player):
 			'freshness': freshness_scores,
 		}
 
-		# Checking for if it is a pause turn for the weighting system
-		weighted_score_weight = 0.65
-		raw_score_weight = 0.35
-
 		best_item, best_now, weighted_scores = choose_item(
+			self,
 			filtered_memory_bank,
 			score_sources,
 			weights=(self.w_coh, self.w_imp, self.w_pref, self.w_nonmon, self.w_fresh),
-			weighted_score_weight=weighted_score_weight,
-			raw_score_weight=raw_score_weight
 		)
 
 		print("\n Candidate Items Scoring Summary:")
 		for item in filtered_memory_bank:
-			item_id = item.id
-			print(f"\n Item: {item.id}")  # Show a preview of item content
-			print(f"  - Coherence: raw={coherence_scores[item_id][0]:.2f}, scaled={coherence_scores[item_id][1]:.2f}")
-			print(f"  - Importance: raw={importance_scores[item_id][0]:.2f}, scaled={importance_scores[item_id][1]:.2f}")
-			print(f"  - Preference: raw={preference_scores[item_id][0]:.2f}, scaled={preference_scores[item_id][1]:.2f}")
-			print(f"  - Nonmonotonousness: raw={nonmonotonousness_scores[item_id][0]:.2f}, scaled={nonmonotonousness_scores[item_id][1]:.2f}")
-			print(f"  - Freshness: raw={freshness_scores[item_id][0]:.2f}, scaled={freshness_scores[item_id][1]:.2f}")
-			print(f"  → Weighted Score: {weighted_scores[item_id]:.3f}")
+			if item is not None:
+				item_id = item.id
+				print(f"\n Item: {item.id}")  # Show a preview of item content
+				print(f"  - Coherence: raw={coherence_scores[item_id][0]:.2f}, scaled={coherence_scores[item_id][1]:.2f}")
+				print(f"  - Importance: raw={importance_scores[item_id][0]:.2f}, scaled={importance_scores[item_id][1]:.2f}")
+				print(f"  - Preference: raw={preference_scores[item_id][0]:.2f}, scaled={preference_scores[item_id][1]:.2f}")
+				print(f"  - Nonmonotonousness: raw={nonmonotonousness_scores[item_id][0]:.2f}, scaled={nonmonotonousness_scores[item_id][1]:.2f}")
+				print(f"  - Freshness: raw={freshness_scores[item_id][0]:.2f}, scaled={freshness_scores[item_id][1]:.2f}")
+				print(f"  → Weighted Score: {weighted_scores[item_id]:.3f}")
 
-		print("\n Selected Item for Proposal:")
-		print(f" Content: {best_item.id}...")
-		print(f" Final Weighted Score: {best_now:.3f}")
-		print(f" Weights → Coherence: {self.w_coh:.2f}, Importance: {self.w_imp:.2f}, Preference: {self.w_pref:.2f}, Non-Monotonous: {self.w_nonmon:.2f}, Freshness: {self.w_fresh:.2f}")
+		if best_item is not None:
+			print("\n Selected Item for Proposal:")
+			print(f" Content: {best_item.id}...")
+			print(f" Final Weighted Score: {best_now:.3f}")
+			print(f" Weights → Coherence: {self.w_coh:.2f}, Importance: {self.w_imp:.2f}, Preference: {self.w_pref:.2f}, Non-Monotonous: {self.w_nonmon:.2f}, Freshness: {self.w_fresh:.2f}")
 
 
 		if best_item is None:
@@ -129,15 +150,16 @@ class Player1(Player):
 			self.ctx.number_of_players,
 		):
 			# print('Decided to Pause')
-			return None  # pause
+			return best_item  # pause
 
 		return best_item
 
 
 	def _update_used_items(self, history: list[Item]) -> None:
 		# Update the used_items set with items from history
+		# Create a set of IDs of items in the player's memory bank
 		# if the item is None, it should not be added to the used_items set
-
+		# memory_ids = {item.id for item in self.memory_bank}
 		self.used_items.update(item.id for item in history if item is not None)
 
 	
@@ -169,64 +191,21 @@ class Player1(Player):
 	) -> tuple[float, float, float, float, float]:
 		P = ctx.number_of_players
 		L = ctx.conversation_length
-		B = len(snapshot.memory_bank)
+		B = len(snapshot.memory_bank) - len(self.contributed_items)
+
+		# Ratio of Coverage
+		R = 0
+		if B > 0:
+			R = L / (P * B)
 
 		# Base Weights
-		w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.4, 0.3, 0.2, 0.1, 0.0
+		w_coh = 1.5 / ((2 * R) ** 2 + 1)
+		w_imp = 1 / (R + 1)
+		w_pref = 1 / (R + 1) * abs(R - 1)
+		w_nonmon = 0
+		w_fresh = 0
 
-		# Length of Conversation
-		if L <= 12:
-			# short: focus importance
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.3, 0.45, 0.2, 0.05, 0.0
-		elif L >= 31:
-			# long: focus coherence even more strongly
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = 0.5, 0.2, 0.15, 0.15, 0.0
-
-		# Player Size
-		if P <= 3:
-			# small: More control, nudge coherence
-			w_coh += 0.05
-			w_imp -= 0.05
-		elif P >= 6:
-			# large: Less control, bank importance more heavily and cut preference
-			w_coh -= 0.1
-			w_imp += 0.1
-			w_pref = max(w_pref - 0.05, 0.1)
-
-		# Inventory Length
-		if B <= 8:
-			# conservative, focus coherence
-			w_coh += 0.05
-			w_imp -= 0.05
-		elif B >= 16:
-			# Less Conservative, focus importance
-			w_imp += 0.05
-			w_coh -= 0.05
-
-		# clamp to [0,1] and softly renormalize to keep sum≈1
-		w_coh = max(0.0, min(1.0, w_coh))
-		w_imp = max(0.0, min(1.0, w_imp))
-		w_pref = max(0.0, min(1.0, w_pref))
-		w_nonmon = max(0.0, min(1.0, w_nonmon))
-		w_fresh = max(0.0, min(1.0, w_fresh))
-
-		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
-		if total > 0:
-			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
-				w_coh / total,
-				w_imp / total,
-				w_pref / total,
-				w_nonmon / total,
-				w_fresh / total,
-			)
-
-		# Cap preference weight depending on conversation length
-		if L <= 12 and w_pref > 0.18:
-			w_pref = 0.18
-		elif L >= 31 and w_pref > 0.15:
-			w_pref = 0.15
-
-		# Renormalize after capping preference
+		# Normalize Weights
 		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
 		if total > 0:
 			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
@@ -238,7 +217,69 @@ class Player1(Player):
 			)
 
 		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh)
-	
+
+	def dynamic_adjustment(self, history: list[Item], ctx: GameContext, snapshot: PlayerSnapshot):
+		# Adjust weights based on game context
+		P = ctx.number_of_players
+		L = ctx.conversation_length - len(history)
+		B = len(snapshot.memory_bank) - len(self.contributed_items)
+		is_fresh_turn = False
+		is_monotonous_turn = False
+
+		# ADD IN SOMETHING THAT CHANGES THE SCALED VS RAW SCORES
+
+		# Ratio of Coverage
+		R = 0
+		if B > 0:
+			R = L / (P * B)
+
+		# Base Weights
+		w_coh = 1.5 / ((2 * R) ** 2 + 1)
+		w_imp = 1 / (R + 1)
+		w_pref = 1 / (R + 1) * abs(R - 1)
+		w_nonmon = 0
+		w_fresh = 0
+
+		# Checking for if it is a pause turn for the weighting system
+		if len(history) != 0 and history[-1] is None:  # Last move was a pause
+			# After a pause, we freshness to be weighted higher to take advantage of the opportunity
+			is_fresh_turn = True
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
+				0.0,
+				0.1,
+				0.1,
+				0.0,
+				0.8,
+			)
+
+		# Checking for monotonousness in the recent history (only time we use the weight)
+		subj_counts, top_freq, unique, seen_recent = recent_subject_stats(history, 3)
+		if top_freq == 3:
+			is_monotonous_turn = True
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
+				0.05,
+				0.05,
+				0.2,
+				0.7,
+				0.0,
+			)
+
+		# Normalize Weights
+		total = w_coh + w_imp + w_pref + w_nonmon + w_fresh
+		if total > 0:
+			w_coh, w_imp, w_pref, w_nonmon, w_fresh = (
+				w_coh / total,
+				w_imp / total,
+				w_pref / total,
+				w_nonmon / total,
+				w_fresh / total,
+			)
+		# print("Player ID: ", self.id)
+		# print("contributed items: ", (self.contributed_items))
+		# print("Coverage Ratio", R, "Length of Conversation Remaining: ", L, " | Number of Players: ", P, " | Items Remaining: ", B)
+		# print(f'Weights: Coherence: {w_coh}, Importance: {w_imp}, Preference: {w_pref}, Nonmonotonousness: {w_nonmon}, Freshness: {w_fresh}')
+		return (w_coh, w_imp, w_pref, w_nonmon, w_fresh, is_fresh_turn, is_monotonous_turn)
+
 
 	def expected_planning_bonus_lookahead(self, current_speaker_id, player_turns, subjects, current_item, filtered_memory_bank, missing_subjects):
 		dist = {current_speaker_id: 1.0}
@@ -377,13 +418,14 @@ class Player1(Player):
 	def update_player_data(self, item_tup: tuple[int, Item] | None, history):
 		_, item = item_tup
 
+		if item is None:
+			return
+
 		player_id = item.player_id
 		self.player_turns[player_id] += 1
 		self.player_actions[player_id].append(item)  # keep track of each thing the player has said
 
-		if item is None:
-			self.player_pause_count[player_id] += 1
-			return
+		
 		
 		for subject in item.subjects:
 			self.player_subjects[player_id][subject] += 1  # keep track of how many times they've mentioned each subject
@@ -416,6 +458,11 @@ def recent_subject_stats(history: list[Item], window: int = 6):
 	top_freq = max(subj_counts.values()) if subj_counts else 0
 	unique = len(subj_counts)
 	return subj_counts, top_freq, unique, set(subjects)
+
+
+##################################################
+#### Category: Scoring and Sorting Functions #####
+##################################################
 
 
 def inventory_subjects(items: list[Item]) -> set[str]:
@@ -518,6 +565,15 @@ def score_coherence(player: Player1, current_item: Item, history: list[Item], fi
 
 
 def score_freshness(current_item: Item, history: list[Item]) -> float:
+	if current_item is None:
+		return 0.0
+
+	if len(history) != 0 and history[-1] is not None:
+		raw_score = 0.0
+		scaled_score = 0.0
+		# print(f"Freshness - Item ID: {current_item.id}, Raw Score: {raw_score}, Scaled Score: {scaled_score}")
+		return raw_score, scaled_score
+
 	recent_history = history[-6:-2]  # 5 items before current turn
 	novel_subjects = 0
 
@@ -542,7 +598,7 @@ def score_freshness(current_item: Item, history: list[Item]) -> float:
 	else:  # novel_subjects = 2
 		raw_score = 2.0
 		scaled_score = 1.0
-
+	# print(f"Freshness - Item ID: {current_item.id}, Raw Score: {raw_score}, Scaled Score: {scaled_score}")
 	return raw_score, scaled_score
 
 
@@ -560,14 +616,15 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 		):
 			penalty -= 1
 
-	if current_item.id in {item.id for item in history}:
+	if current_item.id in {item.id for item in history if item is not None}:
 		penalty -= 1
 
 	raw_score = penalty
 
-	max_penalty = len(current_item.subjects) + 1 if current_item.subjects else 1
+	max_penalty = len(current_item.subjects) if current_item.subjects else 1
 
-	scaled_score = 1.0 - (penalty / max_penalty)  # higher scaled score is more nonmonotonous
+	scaled_score = 1.0 + (penalty / max_penalty)  # higher scaled score is more nonmonotonous
+	# print(f"Nonmonotonousness - Item ID: {current_item.id}, Raw Score: {raw_score}, Scaled Score: {scaled_score}")
 	return raw_score, scaled_score
 
 
@@ -594,6 +651,8 @@ def score_item_preference(subjects, subj_pref_ranking):
 		1 - subj_pref_ranking.get(subject, S_length) / S_length for subject in subjects
 	]  # bonus is already a preference score of sorts
 	raw_score = sum(bonuses) / len(bonuses)
+	# print(f"Preference - Subjects: {subjects}, Raw Score: {raw_score}")
+
 	scaled_score = raw_score
 	return raw_score, scaled_score
 
@@ -616,12 +675,14 @@ def calculate_weighted_score(
 	)
 
 
+##################################################
+#### DECISION MAKING FUNCTIONS ######
+##################################################
 def choose_item(
+	self,
 	memory_bank: list[Item],
 	score_sources: dict[str, dict[UUID, tuple[float, float]]],
 	weights: tuple[float, float, float, float, float],
-	weighted_score_weight,
-	raw_score_weight
 ):
 	scaled_scores = {
 		'coherence': {},
@@ -630,29 +691,47 @@ def choose_item(
 		'nonmonotonousness': {},
 		'freshness': {},
 	}
+	# print score sources for debugging
+	# print("Score Sources: ", score_sources)
+
 	total_raw_scores = {}
 
 	for item in memory_bank:
 		item_id = item.id
 		raw_score_sum = 0
-
 		for key in score_sources:
-			raw_score_sum += score_sources[key][item_id][0]
-			scaled_scores[key][item_id] = score_sources[key][item_id][1]
+			# STATEMENT TO HAVE RAW SCORE = SHARED SCORE
+			if key != 'preference':
+				raw_score_sum += score_sources[key][item_id][0]
+				scaled_scores[key][item_id] = score_sources[key][item_id][1]
 
+		# print(f"Item ID: {item_id} | Raw Score Sum: {raw_score_sum}")
 		total_raw_scores[item_id] = raw_score_sum
 
 	total_weighted_scores = {
 		item.id: calculate_weighted_score(item.id, scaled_scores, weights) for item in memory_bank
 	}
 
+	# Combine weighted and raw scores for final decision
+	a = 0.5
+	b = 1 - a
+
 	final_scores = {
-		item.id: weighted_score_weight * total_weighted_scores[item.id] + raw_score_weight * total_raw_scores[item.id]
+		item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id]
 		for item in memory_bank
 	}
 
+	# If no final scores, return None
+	# print all final scores for debugging by uuid
+	# for item_id, score in final_scores.items():
+	# print(f"Item ID: {item_id} | Final Score: {score}")
+
 	if not final_scores:
 		return None
+	# If the best score is less than .15, we should pause (THIS IS FOR SHARED SCORES)
+	elif max(final_scores.values()) < 0.5:
+		# print(f"*** We Didn't meet threshold: ", final_scores.values())
+		return None, 0.0, final_scores
 
 	# Best candidate now
 	best_item_id, best_now = max(final_scores.items(), key=lambda kv: kv[1])
