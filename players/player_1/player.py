@@ -14,7 +14,7 @@ class Player1(Player):
 
 		self.used_items: set[UUID] = set()
 		self.snapshot = snapshot
-		self.w_strength = 1.0  # Initial weight strength
+		self.threshold = 0.5  # Default threshold for pause decision
 
 		# Adding dynamic playing style where we set the weights for coherence, importance and preference
 		# based on the game context
@@ -93,6 +93,18 @@ class Player1(Player):
 			'nonmonotonousness': nonmonotonousness_scores,
 			'freshness': freshness_scores,
 		}
+		
+		average_past_7 = average_score_last_n(history, 7)
+		print("Average Last 7 Final Scores: ", average_past_7)
+		average_past_3 = average_score_last_n(history, 3)
+		print("Average Last 3 Final Scores: ", average_past_3)
+		print("Current Threshold: ", self.threshold)
+		if average_past_7 != 0.0:
+			average_change = average_past_3 - average_past_7
+			self.threshold = .5 + average_change/2
+		
+		#if (average_past_n != 0.0) and (len(history) >= 7 ):
+		#	self.threshold = max(0.25, .25 + average_past_n/2)
 
 		best_item, best_now, weighted_scores = choose_item(
 			self,
@@ -491,7 +503,7 @@ def choose_item(
 	if not final_scores:
 		return None
 	# If the best score is less than .15, we should pause (THIS IS FOR SHARED SCORES)
-	elif max(final_scores.values()) < 0.5:
+	elif max(final_scores.values()) < self.threshold:
 		# print(f"*** We Didn't meet threshold: ", final_scores.values())
 		return None, 0.0, final_scores
 
@@ -513,6 +525,21 @@ def choose_item(
 # Helper functions for pause decisions
 ##################################################
 
+def average_score_last_n(history: list[Item], n: int) -> float:
+	# Calculate the average score of the last n items in history (ignoring None)
+	
+	if len(history) >= n:
+		importance_scores = [item.importance for item in history[-n:] if item is not None]
+		coherence_scores = [coherence_check(item, history)[1] for item in history[-n:] if item is not None]
+		scores = [ (importance + coherence) for importance, coherence in zip(importance_scores, coherence_scores)]
+		if not scores:
+			return 0.0
+		return sum(scores) / len(scores)
+	#If the history is less than n but greater than 0, return a lower threshold (encorage speaking to start the game)
+	elif len(history) == 0:
+		return -0.5
+	else:
+		return 0.0
 
 def count_consecutive_pauses(history: list[Item]) -> int:
 	# Check only the two most recent moves for consecutive pauses
