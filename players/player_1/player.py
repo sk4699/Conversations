@@ -319,7 +319,7 @@ class Player1(Player):
 					mention_prob = self.expected_subject_mention_coverage(missing_subjects, next_speaker)  # how likely are they to mention a missing subject?
 					weighted_bonus = bonus * (0.5 + 0.5 * mention_prob)  # bonus is halved if player isn't expected to mention a missing subject. otherwise, full
 					total_expected_bonus += prob * next_prob * weighted_bonus
-					print( prob, next_prob, bonus, mention_prob)
+					print(prob, next_prob, bonus, mention_prob)
 					# add to the bonus, the chance that we get to this speaker * the chance that we get to the next speaker * how good of a move they're likely to make
 					#  * the chance they mention the missing subject
 					next_dist[next_speaker] += prob * next_prob  # prob that next speaker will speak in next round
@@ -327,7 +327,7 @@ class Player1(Player):
 
 		print("TOTAL EXPECTED BONUS: ", total_expected_bonus)
 
-		max_possible_bonus = 3 * 1.0 * 1.0 * 1.0 * 1.0
+		max_possible_bonus = 3 * 2.0
 		return min(total_expected_bonus / max_possible_bonus, 1.0)  # scale it down from 0 to 1
 		
 
