@@ -776,8 +776,8 @@ def average_score_last_n(history: list[Item], n: int) -> float:
 	
 	if len(history) >= n:
 		importance_scores = [item.importance for item in history[-n:] if item is not None]
-		coherence_scores = [coherence_check(item, history)[1] for item in history[-n:] if item is not None]
-		scores = [ (importance + coherence) for importance, coherence in zip(importance_scores, coherence_scores)]
+		coherence_scores = [score_coherence(item, history)[1] for item in history[-n:] if item is not None]
+		scores = [ (importance + coherence) for importance, coherence in zip(importance_scores, coherence_scores, strict=False)]
 		if not scores:
 			return 0.0
 		return sum(scores) / len(scores)
