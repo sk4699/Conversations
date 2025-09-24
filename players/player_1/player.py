@@ -87,6 +87,7 @@ class Player1(Player):
 			item.id: score_coherence(self, item, history, filtered_memory_bank)
 			for item in filtered_memory_bank
 		}
+
 		importance_scores = {
 			item.id: (item.importance, item.importance) for item in filtered_memory_bank
 		}
@@ -109,9 +110,9 @@ class Player1(Player):
 			'freshness': freshness_scores,
 		}
 
-		average_past_7 = average_score_last_n(history, 7)
+		average_past_7 = average_score_last_n(filtered_memory_bank, history, 7, self)
 		# print("Average Last 7 Final Scores: ", average_past_7)
-		average_past_3 = average_score_last_n(history, 3)
+		average_past_3 = average_score_last_n(filtered_memory_bank, history, 3, self)
 		# print("Average Last 3 Final Scores: ", average_past_3)
 		# print("Current Threshold: ", self.threshold)
 		if average_past_7 != 0.0:
@@ -647,15 +648,6 @@ def score_nonmonotonousness(current_item: Item, history: list[Item]) -> float:
 	return raw_score, scaled_score
 
 
-def coherence_sort(memory_bank: list[Item], history: list[Item]) -> list[Item]:
-	# Sort the memory bank based on coherence scores in descending order
-	# use a lambda on each item to check coherence score
-	sorted_memory = sorted(
-		memory_bank, key=lambda item: Player1.score_coherence(item, history), reverse=True
-	)
-	return sorted_memory
-
-
 def importance_sort(memory_bank: list[Item]) -> list[Item]:
 	# Sort the memory bank based on the importance attribute in descending order
 	return sorted(memory_bank, key=lambda item: item.importance, reverse=True)
@@ -772,13 +764,15 @@ def choose_item(
 ##################################################
 
 
-def average_score_last_n(history: list[Item], n: int) -> float:
+def average_score_last_n(memory_bank, history: list[Item], n: int, player) -> float:
 	# Calculate the average score of the last n items in history (ignoring None)
 
 	if len(history) >= n:
 		importance_scores = [item.importance for item in history[-n:] if item is not None]
 		coherence_scores = [
-			score_coherence(item, history)[1] for item in history[-n:] if item is not None
+			score_coherence(player, item, history, memory_bank)[1]
+			for item in history[-n:]
+			if item is not None
 		]
 		scores = [
 			(importance + coherence)
