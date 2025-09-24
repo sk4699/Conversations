@@ -317,12 +317,15 @@ class Player1(Player):
 				for next_speaker, next_prob in next_probs.items():  # for each possible next speaker,
 					bonus = self.compute_planning_bonus_for_speaker(next_speaker, subjects, current_item)
 					mention_prob = self.expected_subject_mention_coverage(missing_subjects, next_speaker)  # how likely are they to mention a missing subject?
-					total_expected_bonus += prob * next_prob * bonus * mention_prob
+					weighted_bonus = bonus * (0.5 + 0.5 * mention_prob)  # bonus is halved if player isn't expected to mention a missing subject. otherwise, full
+					total_expected_bonus += prob * next_prob * weighted_bonus
+					print( prob, next_prob, bonus, mention_prob)
 					# add to the bonus, the chance that we get to this speaker * the chance that we get to the next speaker * how good of a move they're likely to make
 					#  * the chance they mention the missing subject
 					next_dist[next_speaker] += prob * next_prob  # prob that next speaker will speak in next round
-
 			dist = next_dist
+
+		print("TOTAL EXPECTED BONUS: ", total_expected_bonus)
 
 		max_possible_bonus = 3 * 1.0 * 1.0 * 1.0 * 1.0
 		return min(total_expected_bonus / max_possible_bonus, 1.0)  # scale it down from 0 to 1
@@ -356,7 +359,7 @@ class Player1(Player):
 		print(f"[Planning Bonus for Speaker {speaker_id}]")
 		print(f"  Subject preference bonus: {favorite_player_subject_bonus:.2f}")
 		print(f"  Coherence fraction bonus: {expected_coherence_fraction_bonus:.2f}")
-		print(f"  Self follow-up potential: {self_coherence_bonus:.2f}")
+		print(f"  Self follow-up potential (if it's the speaker): {self_coherence_bonus:.2f}")
 		print(f"  Total: {total_bonus:.2f}")
 
 		return total_bonus
@@ -382,24 +385,30 @@ class Player1(Player):
 		if not player_turns:
 			return {}
 
-		probs = {pid: 0.0 for pid in player_turns}
-
 		other_counts = [count for _, count in player_turns.items()]
 		if not other_counts:
 			return {current_speaker_id: 1.0}
 		min_contrib = min(other_counts)
 
 		lowest_contributors = [pid for pid, count in player_turns.items() if count == min_contrib]
+		print("LOWEST CONTRIBUTORS", lowest_contributors)
 
 		num_lowest = len(lowest_contributors)
+		print(num_lowest)
+
+		probs = dict()
 		
 		probs[current_speaker_id] = 0.5
 		
 		if num_lowest > 0:
 			share = 0.5 / num_lowest
 			for pid in lowest_contributors:
+				if pid not in probs:
+					probs[pid] = 0.0
 				probs[pid] += share
-
+		print("CURRENT SPEAKER: ", current_speaker_id)
+		print("NEXT PLAYER PROBS: ", probs)
+		print(player_turns)
 		return probs
 
 
@@ -479,6 +488,7 @@ def score_coherence(player: Player1, current_item: Item, history: list[Item], fi
 		subjects = current_item.subjects
 		counts = [subject_count.get(s, 0) for s in subjects]
 		missing_subjects = [s for s, c in zip(subjects, counts) if c < 2]
+		print(subject_count)
 
 		print(f"\nScoring Coherence for Item: {current_item.id}")
 		print(f"Subjects: {subjects}")
@@ -495,8 +505,11 @@ def score_coherence(player: Player1, current_item: Item, history: list[Item], fi
 		# what is the expected value fo the next speaker saying the missing subject next?
 		# and maybe again take into account expected value based on the global leaning towards coherence in the overall conversation, for the last two spots in the future context
 
+		min_turns_before_bonus = 10
+		enough_history = len(history) >= min_turns_before_bonus
+		
 		apply_bonus = False
-		if (len(counts) == 1 and counts[0] == 1) or (len(counts) == 2 and (counts == [1, 1] or (2 in counts and 1 in counts))):
+		if enough_history and (len(counts) == 1 and counts[0] == 1) or (len(counts) == 2 and (counts == [1, 1] or (2 in counts and 1 in counts))):
 			apply_bonus = True
 
 		#  raw score reflects degrees of overlap with the previous context
