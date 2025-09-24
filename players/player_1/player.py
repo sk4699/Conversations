@@ -427,6 +427,7 @@ class Player1(Player):
 		)  # getting rid of the repeats since items can have two subjects
 		return prob_mention_any
 
+
 	def get_next_player_probs(
 		self, current_speaker_id: UUID, player_turns: dict[UUID, int]
 	) -> dict[UUID, float]:
