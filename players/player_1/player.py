@@ -476,6 +476,7 @@ def choose_item(
 	# Combine weighted and raw scores for final decision
 	a = 0.5
 	b = 1 - a
+	#THIS IS A TEST
 
 	final_scores = {
 		item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id]
