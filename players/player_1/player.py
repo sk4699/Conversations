@@ -352,9 +352,14 @@ class Player1(Player):
 					mention_prob = self.expected_subject_mention_coverage(
 						missing_subjects, next_speaker
 					)  # how likely are they to mention a missing subject?
-					weighted_bonus = (
-						bonus * (0.5 + 0.5 * mention_prob)
-					)  # bonus is halved if player isn't expected to mention a missing subject. otherwise, full
+
+					num_subjects = max(1, len(subjects))
+					num_missing = len(missing_subjects)
+					missing_frac = num_missing / num_subjects
+					weighted_bonus = bonus * (1.0 - 0.5 * missing_frac + 0.5 * missing_frac * mention_prob)
+					#  adjusting for the number of missing subjects. so this depends on both # missing subjects and
+					#  mention probability
+					#  lowest possible is still 0.5. don't want bonus to not count at all, just bc of low mention probability
 					total_expected_bonus += prob * next_prob * weighted_bonus
 					print(prob, next_prob, bonus, mention_prob)
 					# add to the bonus, the chance that we get to this speaker * the chance that we get to the next speaker * how good of a move they're likely to make
@@ -372,41 +377,52 @@ class Player1(Player):
 	def compute_planning_bonus_for_speaker(
 		self, speaker_id: UUID, subjects: list[str], current_item: Item
 	) -> float:
-		favorite_player_subject_bonus = 0.0
-		# how often do they mention this subject? estimate a "preference" of sorts
-
-		subject_mentions = self.player_subjects.get(speaker_id, {})
-		total_mentions = sum(subject_mentions.values())
-		if total_mentions > 0:
-			for subj in subjects:
-				freq = subject_mentions.get(subj, 0)
-				favorite_player_subject_bonus += freq / total_mentions
-
-		coherence_frac = self.player_coherence_fraction.get(speaker_id, 0.0)
-		expected_coherence_fraction_bonus = min(coherence_frac, 1.0) * 0.5  # scale it down
-
+		
 		#  if the speaker is me, we can directly tell whether we can finish the thread
 		self_coherence_bonus = 0.0
 		if speaker_id == self.id:
+			_, subject_preference_bonus = score_item_preference(subjects, self.subj_pref_ranking)
 			for subj in subjects:
+				
 				if any(
-					subj in item.subjects and item.id != current_item.id
+					subj in item.subjects and item.id != current_item.id  # if we have something that can finish the thread
 					for item in self.memory_bank
 				):
-					self_coherence_bonus = 0.5
+					self_coherence_bonus = 0.5  # could have bonus scale to # followups available. could be monotonous!
 					break
 
-		total_bonus = (
-			favorite_player_subject_bonus + expected_coherence_fraction_bonus + self_coherence_bonus
-		)
+			total_bonus = subject_preference_bonus + self_coherence_bonus
 
-		print(f'[Planning Bonus for Speaker {speaker_id}]')
-		print(f'  Subject preference bonus: {favorite_player_subject_bonus:.2f}')
-		print(f'  Coherence fraction bonus: {expected_coherence_fraction_bonus:.2f}')
-		print(f"  Self follow-up potential (if it's the speaker): {self_coherence_bonus:.2f}")
-		print(f'  Total: {total_bonus:.2f}')
+			print(f'[Planning Bonus for ME]')
+			print(f'  Subject preference bonus: {subject_preference_bonus:.2f}')
+			print(f"  Self follow-up potential (if it's the speaker): {self_coherence_bonus:.2f}")
+			print(f'  Total: {total_bonus:.2f}')
+		else:
+
+			favorite_player_subject_bonus = 0.0
+			# how often do they mention this subject? estimate a "preference" of sorts
+
+			subject_mentions = self.player_subjects.get(speaker_id, {})
+			total_mentions = sum(subject_mentions.values())
+			if total_mentions > 0:
+				for subj in subjects:
+					freq = subject_mentions.get(subj, 0)
+					favorite_player_subject_bonus += freq / total_mentions
+
+			coherence_frac = self.player_coherence_fraction.get(speaker_id, 0.0)
+			expected_coherence_fraction_bonus = min(coherence_frac, 1.0) * 0.5  # scale it down
+
+			total_bonus = (
+				favorite_player_subject_bonus + expected_coherence_fraction_bonus
+			)
+
+			print(f'[Planning Bonus for Speaker {speaker_id}]')
+			print(f'  Subject preference bonus: {favorite_player_subject_bonus:.2f}')
+			print(f'  Coherence fraction bonus: {expected_coherence_fraction_bonus:.2f}')
+			print(f'  Total: {total_bonus:.2f}')
 
 		return total_bonus
+
 
 	def expected_subject_mention_coverage(
 		self, subjects_needed: list[str], speaker_id: UUID
@@ -560,11 +576,8 @@ def score_coherence(
 	enough_history = len(history) >= min_turns_before_bonus
 
 	apply_bonus = False
-	if (
-		enough_history
-		and (len(counts) == 1 and counts[0] == 1)
-		or (len(counts) == 2 and (counts == [1, 1] or (2 in counts and 1 in counts)))
-	):
+	coherence_uncertain = enough_history and (len(counts) == 1 and counts[0] == 1) or (len(counts) == 2 and (counts == [1, 1] or (2 in counts and 1 in counts)))
+	if (coherence_uncertain):
 		apply_bonus = True
 
 	#  raw score reflects degrees of overlap with the previous context
@@ -606,7 +619,7 @@ def score_coherence(
 			missing_subjects=missing_subjects,
 		)
 
-		bonus_weight = 1.0 - scaled_score  # more bonus allowed if coherence is uncertain
+		bonus_weight = 1.0 - scaled_score  # more bonus used if coherence is more uncertain
 		scaled_score = min(scaled_score + bonus_weight * bonus, 1.0)
 
 		print(f'Planning Bonus Applied: {bonus:.2f}')
