@@ -108,18 +108,18 @@ class Player1(Player):
 			'nonmonotonousness': nonmonotonousness_scores,
 			'freshness': freshness_scores,
 		}
-		
+
 		average_past_7 = average_score_last_n(history, 7)
-		#print("Average Last 7 Final Scores: ", average_past_7)
+		# print("Average Last 7 Final Scores: ", average_past_7)
 		average_past_3 = average_score_last_n(history, 3)
-		#print("Average Last 3 Final Scores: ", average_past_3)
-		#print("Current Threshold: ", self.threshold)
+		# print("Average Last 3 Final Scores: ", average_past_3)
+		# print("Current Threshold: ", self.threshold)
 		if average_past_7 != 0.0:
 			average_change = average_past_3 - average_past_7
-			self.threshold = .5 + average_change/2
-		
-		#if (average_past_n != 0.0) and (len(history) >= 7 ):
-		#	self.threshold = max(0.25, .25 + average_past_n/2)
+			self.threshold = 0.5 + average_change / 2
+
+		# if (average_past_n != 0.0) and (len(history) >= 7 ):
+		# self.threshold = max(0.25, .25 + average_past_n/2)
 
 		best_item, best_now, weighted_scores = choose_item(
 			self,
@@ -734,7 +734,7 @@ def choose_item(
 	# Combine weighted and raw scores for final decision
 	a = 0.5
 	b = 1 - a
-	#THIS IS A TEST
+	# THIS IS A TEST
 
 	final_scores = {
 		item.id: a * total_weighted_scores[item.id] + b * total_raw_scores[item.id]
@@ -771,21 +771,28 @@ def choose_item(
 # Helper functions for pause decisions
 ##################################################
 
+
 def average_score_last_n(history: list[Item], n: int) -> float:
 	# Calculate the average score of the last n items in history (ignoring None)
-	
+
 	if len(history) >= n:
 		importance_scores = [item.importance for item in history[-n:] if item is not None]
-		coherence_scores = [score_coherence(item, history)[1] for item in history[-n:] if item is not None]
-		scores = [ (importance + coherence) for importance, coherence in zip(importance_scores, coherence_scores, strict=False)]
+		coherence_scores = [
+			score_coherence(item, history)[1] for item in history[-n:] if item is not None
+		]
+		scores = [
+			(importance + coherence)
+			for importance, coherence in zip(importance_scores, coherence_scores, strict=False)
+		]
 		if not scores:
 			return 0.0
 		return sum(scores) / len(scores)
-	#If the history is less than n but greater than 0, return a lower threshold (encorage speaking to start the game)
+	# If the history is less than n but greater than 0, return a lower threshold (encorage speaking to start the game)
 	elif len(history) == 0:
 		return -0.5
 	else:
 		return 0.0
+
 
 def count_consecutive_pauses(history: list[Item]) -> int:
 	# Check only the two most recent moves for consecutive pauses
