@@ -95,10 +95,10 @@ class Player1(Player):
 		}
 		
 		average_past_7 = average_score_last_n(history, 7)
-		print("Average Last 7 Final Scores: ", average_past_7)
+		#print("Average Last 7 Final Scores: ", average_past_7)
 		average_past_3 = average_score_last_n(history, 3)
-		print("Average Last 3 Final Scores: ", average_past_3)
-		print("Current Threshold: ", self.threshold)
+		#print("Average Last 3 Final Scores: ", average_past_3)
+		#print("Current Threshold: ", self.threshold)
 		if average_past_7 != 0.0:
 			average_change = average_past_3 - average_past_7
 			self.threshold = .5 + average_change/2
