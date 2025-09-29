@@ -108,7 +108,7 @@ def _parse_opponents_spec(spec: str | None) -> List[str] | None:
 
 def _expand_real_mix() -> List[str]:
     # Always include Player9, then rotate the rest
-    return ["player9", "player2", "player3", "player5", "player6", "player7", "player10"]
+    return ["player9", "player3", "player5", "player6", "player7", "player10"]
 
 
 
